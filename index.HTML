@@ -160,10 +160,11 @@
 </head>
 <body>
 
-    <div class="auth-card">
+    <!-- Carte d'authentification -->
+    <div class="auth-card" id="form-card">
         <h2 id="form-title">Connexion à Go-school</h2>
 
-        <!-- Connexions Sociales -->
+        <!-- Connexion Sociale -->
         <button class="social-btn" id="google-btn">
             <svg height="16" width="16" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.1 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/><path fill="#FBBC05" d="M5.3 14.7c-.2-.7-.4-1.5-.4-2.7s.2-2 .4-2.7L1.6 6.4C.6 8.4 0 10.6 0 13s.6 4.6 1.6 6.6l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5.3L1.6 15.9C3.5 19.7 7.4 23 12 23z"/></svg>
             Continuer avec Google
@@ -189,16 +190,19 @@
         <p id="message"></p>
     </div>
 
-    <!-- Vue une fois connecté -->
+    <!-- Vue une fois connecté (avec Avatar DiceBear) -->
     <div id="session-container" class="auth-card" style="display:none; text-align: center;">
         <h2>Bienvenue !</h2>
+        <!-- Image de l'avatar DiceBear généré automatiquement -->
+        <img id="user-avatar" src="" alt="Avatar" style="width: 80px; height: 80px; border-radius: 50%; margin-bottom: 15px; border: 2px solid #30363d; background: #0d1117;">
         <p>Connecté en tant que : <br><strong id="user-email" style="color: #58a6ff;"></strong></p>
         <button class="primary-btn" id="signout-btn" style="background-color: #da3633;">Se déconnecter</button>
     </div>
 
     <script>
-        const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp ';
+        // Remplace par tes vraies clés Supabase
+        const SUPABASE_URL = 'TON_PROJECT_URL';
+        const SUPABASE_ANON_KEY = 'TA_CLE_ANON_PUBLIC';
 
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -212,7 +216,7 @@
         const toggleText = document.getElementById('toggle-text');
         const toggleLink = document.getElementById('toggle-link');
 
-        // Bascule Connexion / Inscription
+        // Bascule dynamique Connexion / Inscription
         toggleLink.addEventListener('click', () => {
             isSignUp = !isSignUp;
             if (isSignUp) {
@@ -229,19 +233,31 @@
             msgEl.textContent = "";
         });
 
-        // Gestion de session
-        supabaseClient.auth.onAuthStateChange((event, session) => {
+        // Gestion de session et récupération de l'avatar DiceBear
+        supabaseClient.auth.onAuthStateChange(async (event, session) => {
             if (session) {
-                document.querySelector('.auth-card:not(#session-container)').style.display = 'none';
+                document.getElementById('form-card').style.display = 'none';
                 document.getElementById('session-container').style.display = 'block';
                 document.getElementById('user-email').textContent = session.user.email;
+
+                // Récupérer l'avatar depuis la table profiles
+                const { data: profile, error } = await supabaseClient
+                    .from('profiles')
+                    .select('avatar_url')
+                    .eq('id', session.user.id)
+                    .single();
+
+                if (profile && profile.avatar_url) {
+                    document.getElementById('user-avatar').src = profile.avatar_url;
+                }
             } else {
-                document.querySelector('.auth-card:not(#session-container)').style.display = 'block';
+                document.getElementById('form-card').style.display = 'block';
                 document.getElementById('session-container').style.display = 'none';
+                document.getElementById('user-avatar').src = '';
             }
         });
 
-        // Bouton principal (Connexion ou Inscription selon le mode)
+        // Action du bouton principal (Connexion ou Inscription)
         actionBtn.addEventListener('click', async () => {
             msgEl.textContent = '';
             const email = emailInput.value;
@@ -249,11 +265,16 @@
 
             if (isSignUp) {
                 const { error } = await supabaseClient.auth.signUp({ email, password });
-                if (error) msgEl.textContent = error.message;
-                else alert('Inscription réussie ! Vérifie ton tableau de bord Supabase.');
+                if (error) {
+                    msgEl.textContent = error.message;
+                } else {
+                    alert('Inscription réussie ! Vérifie ton tableau de bord Supabase.');
+                }
             } else {
                 const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-                if (error) msgEl.textContent = error.message;
+                if (error) {
+                    msgEl.textContent = error.message;
+                }
             }
         });
 

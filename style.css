@@ -1,0 +1,254 @@
+/* =========================================
+   VARIABLES GLOBALES (Réconciliées)
+   ========================================= */
+:root {
+  --bg-base: #0d1117;
+  --bg-surface: #161b22;
+  --border: #30363d;
+  --accent: #58e6a8;
+  --accent-hover: #43c98d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --input-bg: #0d1117;
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* =========================================
+   RESET ET BASE
+   ========================================= */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* =========================================
+   1. STYLES D'AUTHENTIFICATION (index.html)
+   ========================================= */
+
+/* Conteneur pour centrer l'écran de connexion */
+.auth-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.auth-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%;
+  max-width: 380px;
+  padding: 24px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+
+.auth-card h2 {
+  font-size: 20px;
+  margin-top: 0;
+  margin-bottom: 20px;
+  text-align: center;
+  color: var(--text-primary);
+}
+
+.social-btn {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: #21262d;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: background 0.2s;
+}
+
+.social-btn:hover {
+  background-color: var(--border);
+}
+
+.divider {
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  line-height: 0.1em;
+  margin: 20px 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.divider span {
+  background: var(--bg-surface);
+  padding: 0 10px;
+}
+
+.auth-card label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 14px;
+  background-color: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.auth-card input:focus {
+  border-color: var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(88, 230, 168, 0.2); /* Aura verte néon au focus */
+}
+
+.primary-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: var(--accent);
+  color: #0d1117; /* Texte sombre pour contraster avec le vert clair */
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.primary-btn:hover {
+  background-color: var(--accent-hover);
+}
+
+.toggle-mode {
+  text-align: center;
+  margin-top: 15px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.toggle-mode a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.toggle-mode a:hover {
+  text-decoration: underline;
+}
+
+#message {
+  color: #f85149;
+  font-size: 13px;
+  margin-top: 10px;
+  text-align: center;
+}
+
+/* =========================================
+   2. STYLES DU RADAR (radar.html)
+   ========================================= */
+
+.radar-card {
+  width: 360px;
+  max-width: 100%;
+  min-height: 120px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.user-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  object-fit: cover;
+  background-color: #21262d;
+  color: transparent;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.username {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-details {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.btn-ghost {
+  width: 88px;
+  height: 32px;
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.btn-ghost:hover {
+  background-color: rgba(88, 230, 168, 0.1);
+}
+
+.btn-ghost:active {
+  transform: scale(0.97);
+}
+
+.btn-ghost:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

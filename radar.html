@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-school — Radar</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        .app-container { max-width: 420px; margin: 0 auto; padding: 20px 16px; }
+        .app-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
+        .user-profile-header { display: flex; align-items: center; gap: 12px; }
+        .user-meta { display: flex; flex-direction: column; }
+        .user-email-text { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .btn-danger { padding: 6px 12px; background-color: rgba(248, 81, 73, 0.1); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+        .btn-danger:hover { background-color: rgba(248, 81, 73, 0.2); }
+        .section-title { font-size: 16px; font-weight: 600; color: var(--text-secondary); margin-bottom: 16px; }
+        #radar-feed { display: flex; flex-direction: column; gap: 12px; }
+        .empty-feed { color: var(--text-secondary); font-size: 14px; text-align: center; padding: 20px 0; }
+        .btn-ghost:disabled { opacity: 0.5; cursor: default; }
+        #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="user-profile-header">
+                <img id="user-avatar" src="" alt="Mon avatar" class="avatar">
+                <div class="user-meta">
+                    <span id="user-email" class="user-email-text">Chargement...</span>
+                </div>
+            </div>
+            <button type="button" class="btn-danger" id="signout-btn">Déconnexion</button>
+        </header>
+
+        <main>
+            <h2 class="section-title">Radar des élèves</h2>
+            <div id="radar-feed">
+                <p class="empty-feed" id="feed-status">Recherche des élèves...</p>
+            </div>
+        </main>
+    </div>
+
+    <div id="toast"></div>
+
+    <script>
+        const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentUserId = null;
+        const friendshipState = new Map(); // targetId -> 'none'|'loading'|'pending_sent'|'pending_received'|'accepted'|'blocked'
+
+        function escapeHTML(str) {
+            return String(str ?? '').replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        function isValidAvatar(url) {
+            return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.style.display = 'block';
+            clearTimeout(showToast._t);
+            showToast._t = setTimeout(() => { t.style.display = 'none'; }, 3000);
+        }
+
+        // ==========================================
+        // GARDE DE SESSION
+        // ==========================================
+        (async () => {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) { window.location.href = 'index.html'; return; }
+
+            currentUserId = session.user.id;
+            document.getElementById('user-email').textContent = session.user.email;
+
+            const { data: profile } = await supabaseClient
+                .from('profiles')
+                .select('avatar_url')
+                .eq('id', currentUserId)
+                .single();
+
+            const myAvatar = isValidAvatar(profile?.avatar_url)
+                ? profile.avatar_url
+                : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(currentUserId)}`;
+            document.getElementById('user-avatar').src = myAvatar;
+
+            await loadFriendships();
+            await loadRadarFeed();
+        })();
+
+        // ==========================================
+        // CHARGEMENT GROUPÉ DES AMITIÉS (une seule requête)
+        // ==========================================
+        async function loadFriendships() {
+            const { data, error } = await supabaseClient
+                .from('friendships')
+                .select('sender_id, receiver_id, status')
+                .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
+
+            if (error) { console.error('Erreur chargement amitiés:', error); return; }
+
+            (data || []).forEach(row => {
+                const otherId = row.sender_id === currentUserId ? row.receiver_id : row.sender_id;
+                if (row.status === 'accepted') friendshipState.set(otherId, 'accepted');
+                else if (row.status === 'blocked') friendshipState.set(otherId, 'blocked');
+                else friendshipState.set(otherId, row.sender_id === currentUserId ? 'pending_sent' : 'pending_received');
+            });
+        }
+
+        // ==========================================
+        // RENDU DES CARTES — colonnes réelles du schéma uniquement
+        // ==========================================
+        async function loadRadarFeed() {
+            const feedContainer = document.getElementById('radar-feed');
+
+            const { data: profiles, error } = await supabaseClient
+                .from('profiles')
+                .select('id, prenom, classe, quartier, avatar_url');
+
+            if (error) {
+                console.error('Erreur Supabase :', error);
+                feedContainer.innerHTML = '<p class="empty-feed" style="color:#f85149;">Impossible de charger le radar.</p>';
+                return;
+            }
+
+            const otherUsers = (profiles || []).filter(p => p.id !== currentUserId);
+
+            if (otherUsers.length === 0) {
+                feedContainer.innerHTML = '<p class="empty-feed">Aucun autre élève trouvé sur le radar.</p>';
+                return;
+            }
+
+            feedContainer.innerHTML = otherUsers.map(user => {
+                const prenom = escapeHTML(user.prenom || 'Élève');
+                const classe = escapeHTML(user.classe || 'Classe non renseignée');
+                const quartier = escapeHTML(user.quartier || '');
+                const avatar = isValidAvatar(user.avatar_url)
+                    ? user.avatar_url
+                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(user.id)}`;
+                const details = quartier ? `${classe} — ${quartier}` : classe;
+
+                return `
+                    <article class="radar-card" data-user-id="${escapeHTML(user.id)}">
+                        <div class="user-left">
+                            <img src="${escapeHTML(avatar)}" alt="Avatar de ${prenom}" class="avatar">
+                            <div class="user-info">
+                                <h3 class="username">${prenom}</h3>
+                                <span class="user-details">${details}</span>
+                            </div>
+                        </div>
+                        <button type="button" class="friend-btn btn-ghost" aria-label="Ajouter ${prenom}"></button>
+                    </article>
+                `;
+            }).join('');
+
+            otherUsers.forEach(user => renderFriendButton(user.id));
+        }
+
+        // ==========================================
+        // ÉTAT + ACTION D'AMITIÉ
+        // ==========================================
+        function renderFriendButton(targetId) {
+            const card = document.querySelector(`[data-user-id="${targetId}"]`);
+            if (!card) return;
+            const btn = card.querySelector('.friend-btn');
+            const labels = {
+                none: { text: 'Ajouter', disabled: false },
+                loading: { text: '...', disabled: true },
+                pending_sent: { text: 'Demande envoyée', disabled: true },
+                pending_received: { text: 'Répondre', disabled: false },
+                accepted: { text: 'Ami', disabled: true },
+                blocked: { text: 'Indisponible', disabled: true },
+            };
+            const cfg = labels[friendshipState.get(targetId) || 'none'];
+            btn.textContent = cfg.text;
+            btn.disabled = cfg.disabled;
+        }
+
+        async function sendFriendRequest(targetId) {
+            const current = friendshipState.get(targetId) || 'none';
+            if (current !== 'none') return;
+
+            friendshipState.set(targetId, 'loading');
+            renderFriendButton(targetId);
+
+            const { error } = await supabaseClient
+                .from('friendships')
+                .insert({ sender_id: currentUserId, receiver_id: targetId });
+
+            if (!error) {
+                friendshipState.set(targetId, 'pending_sent');
+                renderFriendButton(targetId);
+                return;
+            }
+
+            if (error.code === '23505') { await reconcileFriendshipState(targetId); return; }
+
+            if (error.code === '23503') {
+                friendshipState.set(targetId, 'none');
+                renderFriendButton(targetId);
+                showToast("Ce profil n'existe plus.");
+                return;
+            }
+
+            if (error.code === '42501' || error.code === '23514') {
+                console.error('Rejet sécurité friendships:', error);
+                friendshipState.set(targetId, 'none');
+                renderFriendButton(targetId);
+                showToast('Action non autorisée.');
+                return;
+            }
+
+            friendshipState.set(targetId, 'none');
+            renderFriendButton(targetId);
+            showToast('Erreur réseau, réessaie.');
+        }
+
+        async function reconcileFriendshipState(targetId) {
+            const { data } = await supabaseClient
+                .from('friendships')
+                .select('sender_id, status')
+                .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUserId})`)
+                .maybeSingle();
+
+            if (!data) { friendshipState.set(targetId, 'none'); renderFriendButton(targetId); return; }
+            if (data.status === 'accepted') friendshipState.set(targetId, 'accepted');
+            else if (data.status === 'blocked') friendshipState.set(targetId, 'blocked');
+            else friendshipState.set(targetId, data.sender_id === currentUserId ? 'pending_sent' : 'pending_received');
+            renderFriendButton(targetId);
+        }
+
+        document.getElementById('radar-feed').addEventListener('click', (e) => {
+            const btn = e.target.closest('.friend-btn');
+            if (!btn) return;
+            const card = btn.closest('[data-user-id]');
+            if (card) sendFriendRequest(card.dataset.userId);
+        });
+
+        document.getElementById('signout-btn').addEventListener('click', async () => {
+            await supabaseClient.auth.signOut();
+            window.location.href = 'index.html';
+        });
+    </script>
+</body>
+</html>

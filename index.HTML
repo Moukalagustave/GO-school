@@ -11,194 +11,50 @@
     <meta property="og:image" content="https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1200">
     <meta property="og:type" content="website">
 
+    <!-- CSS Unifié -->
+    <link rel="stylesheet" href="style.css">
+
     <!-- SDK Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <style>
-        :root {
-            --bg-color: #0d1117;
-            --card-bg: #161b22;
-            --border-color: #30363d;
-            --text-color: #c9d1d9;
-            --text-muted: #8b949e;
-            --accent-color: #238636;
-            --accent-hover: #2ea043;
-            --input-bg: #0d1117;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-
-        .auth-card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            width: 100%;
-            max-width: 380px;
-            padding: 24px;
-            box-sizing: border-box;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-
-        h2 {
-            font-size: 20px;
-            margin-top: 0;
-            margin-bottom: 20px;
-            text-align: center;
-            color: #ffffff;
-        }
-
-        .social-btn {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            background-color: #21262d;
-            color: white;
-            font-size: 14px;
-            font-weight: 500;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            transition: background 0.2s;
-        }
-
-        .social-btn:hover {
-            background-color: #30363d;
-        }
-
-        .divider {
-            text-align: center;
-            border-bottom: 1px solid var(--border-color);
-            line-height: 0.1em;
-            margin: 20px 0;
-            color: var(--text-muted);
-            font-size: 12px;
-        }
-
-        .divider span {
-            background: var(--card-bg);
-            padding: 0 10px;
-        }
-
-        label {
-            display: block;
-            font-size: 13px;
-            margin-bottom: 6px;
-            color: var(--text-color);
-        }
-
-        input {
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 14px;
-            background-color: var(--input-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            color: white;
-            box-sizing: border-box;
-            font-size: 14px;
-        }
-
-        input:focus {
-            border-color: #58a6ff;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.3);
-        }
-
-        .primary-btn {
-            width: 100%;
-            padding: 10px;
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .primary-btn:hover {
-            background-color: var(--accent-hover);
-        }
-
-        .toggle-mode {
-            text-align: center;
-            margin-top: 15px;
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .toggle-mode a {
-            color: #58a6ff;
-            text-decoration: none;
-            cursor: pointer;
-        }
-
-        .toggle-mode a:hover {
-            text-decoration: underline;
-        }
-
-        #message {
-            color: #f85149;
-            font-size: 13px;
-            margin-top: 10px;
-            text-align: center;
-        }
-    </style>
 </head>
 <body>
 
-    <!-- Carte d'authentification -->
-    <div class="auth-card" id="form-card">
-        <h2 id="form-title">Connexion à Go-school</h2>
+    <!-- Conteneur de centrage (défini dans le nouveau style.css) -->
+    <div class="auth-wrapper">
+        
+        <!-- Carte d'authentification -->
+        <div class="auth-card" id="form-card">
+            <h2 id="form-title">Connexion à Go-school</h2>
 
-        <!-- Connexion Sociale -->
-        <button class="social-btn" id="google-btn">
-            <svg height="16" width="16" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.1 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/><path fill="#FBBC05" d="M5.3 14.7c-.2-.7-.4-1.5-.4-2.7s.2-2 .4-2.7L1.6 6.4C.6 8.4 0 10.6 0 13s.6 4.6 1.6 6.6l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5.3L1.6 15.9C3.5 19.7 7.4 23 12 23z"/></svg>
-            Continuer avec Google
-        </button>
+            <!-- Connexion Sociale -->
+            <button type="button" class="social-btn" id="google-btn">
+                <svg height="16" width="16" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.8 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.1 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/><path fill="#FBBC05" d="M5.3 14.7c-.2-.7-.4-1.5-.4-2.7s.2-2 .4-2.7L1.6 6.4C.6 8.4 0 10.6 0 13s.6 4.6 1.6 6.6l3.7-2.9z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.1-6.7-5.3L1.6 15.9C3.5 19.7 7.4 23 12 23z"/></svg>
+                Continuer avec Google
+            </button>
 
-        <div class="divider"><span>OU</span></div>
+            <div class="divider"><span>OU</span></div>
 
-        <!-- Formulaire Email/Password -->
-        <div id="auth-container">
-            <label>Adresse email</label>
-            <input type="email" id="email" placeholder="nom@exemple.com">
-            
-            <label>Mot de passe</label>
-            <input type="password" id="password" placeholder="••••••••">
+            <!-- Formulaire Email/Password -->
+            <div id="auth-container">
+                <label for="email">Adresse email</label>
+                <input type="email" id="email" placeholder="nom@exemple.com">
+                
+                <label for="password">Mot de passe</label>
+                <input type="password" id="password" placeholder="••••••••">
 
-            <button class="primary-btn" id="action-btn">Se connecter</button>
+                <button type="button" class="primary-btn" id="action-btn">Se connecter</button>
+            </div>
+
+            <div class="toggle-mode">
+                <span id="toggle-text">Pas encore de compte ?</span> <a id="toggle-link">S'inscrire</a>
+            </div>
+
+            <p id="message"></p>
         </div>
 
-        <div class="toggle-mode">
-            <span id="toggle-text">Pas encore de compte ?</span> <a id="toggle-link">S'inscrire</a>
-        </div>
-
-        <p id="message"></p>
     </div>
 
-    <!-- Vue une fois connecté (avec Avatar DiceBear) -->
-    <div id="session-container" class="auth-card" style="display:none; text-align: center;">
-        <h2>Bienvenue !</h2>
-        <!-- Image de l'avatar DiceBear généré automatiquement -->
-        <img id="user-avatar" src="" alt="Avatar" style="width: 80px; height: 80px; border-radius: 50%; margin-bottom: 15px; border: 2px solid #30363d; background: #0d1117;">
-        <p>Connecté en tant que : <br><strong id="user-email" style="color: #58a6ff;"></strong></p>
-        <button class="primary-btn" id="signout-btn" style="background-color: #da3633;">Se déconnecter</button>
-    </div>
-
+    <!-- Script d'authentification pur (sans gestion d'affichage de dashboard) -->
     <script>
         // Remplace par tes vraies clés Supabase
         const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
@@ -233,27 +89,13 @@
             msgEl.textContent = "";
         });
 
-        // Gestion de session et récupération de l'avatar DiceBear
-        supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        // ==========================================
+        // LA NOUVELLE LOGIQUE : REDIRECTION SIMPLE
+        // ==========================================
+        supabaseClient.auth.onAuthStateChange((event, session) => {
             if (session) {
-                document.getElementById('form-card').style.display = 'none';
-                document.getElementById('session-container').style.display = 'block';
-                document.getElementById('user-email').textContent = session.user.email;
-
-                // Récupérer l'avatar depuis la table profiles
-                const { data: profile, error } = await supabaseClient
-                    .from('profiles')
-                    .select('avatar_url')
-                    .eq('id', session.user.id)
-                    .single();
-
-                if (profile && profile.avatar_url) {
-                    document.getElementById('user-avatar').src = profile.avatar_url;
-                }
-            } else {
-                document.getElementById('form-card').style.display = 'block';
-                document.getElementById('session-container').style.display = 'none';
-                document.getElementById('user-avatar').src = '';
+                // Dès que l'utilisateur est connecté, on l'envoie sur l'application
+                window.location.href = 'radar.html';
             }
         });
 
@@ -268,7 +110,7 @@
                 if (error) {
                     msgEl.textContent = error.message;
                 } else {
-                    alert('Inscription réussie ! Vérifie ton tableau de bord Supabase.');
+                    alert('Inscription réussie ! Vérifie ton tableau de bord Supabase (ou tes emails).');
                 }
             } else {
                 const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
@@ -284,11 +126,6 @@
                 provider: 'google',
             });
             if (error) msgEl.textContent = error.message;
-        });
-
-        // Déconnexion
-        document.getElementById('signout-btn').addEventListener('click', async () => {
-            await supabaseClient.auth.signOut();
         });
     </script>
 </body>

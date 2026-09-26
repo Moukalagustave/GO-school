@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-school — Messages</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        .chats-app { max-width: 480px; margin: 0 auto; }
+        .chats-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 16px; border-bottom: 1px solid var(--border);
+        }
+        .chats-header h2 { font-size: 18px; margin: 0; }
+
+        .btn-new-group {
+            background: transparent; border: 1px solid var(--accent); color: var(--accent);
+            border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .btn-new-group:hover { background-color: rgba(88, 230, 168, 0.1); }
+
+        #group-panel {
+            display: none; padding: 16px; border-bottom: 1px solid var(--border);
+            background: var(--bg-surface);
+        }
+        #group-panel.open { display: block; }
+        #group-name {
+            width: 100%; padding: 8px; margin-bottom: 10px; background: var(--bg-base);
+            border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+        }
+        #group-members-list { max-height: 160px; overflow-y: auto; margin-bottom: 10px; }
+        .member-checkbox { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+
+        .chat-row {
+            display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+            border-bottom: 1px solid var(--border); cursor: pointer; text-decoration: none; color: inherit;
+        }
+        .chat-row:hover { background-color: var(--bg-surface); }
+
+        .chat-row-avatar {
+            width: 48px; height: 48px; border-radius: 50%; flex-shrink: 0;
+            background-color: #21262d; object-fit: cover; border: 2px solid var(--border);
+        }
+        .chat-row-avatar.group {
+            display: flex; align-items: center; justify-content: center;
+            background: var(--bg-surface); border-color: var(--accent); font-size: 20px;
+        }
+
+        .chat-row-info { flex: 1; min-width: 0; }
+        .chat-row-name {
+            font-size: 15px; font-weight: 600; color: var(--text-primary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .chat-row-preview {
+            font-size: 13px; color: var(--text-secondary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .chat-row-time { font-size: 11px; color: var(--text-secondary); flex-shrink: 0; }
+
+        .empty-state {
+            text-align: center; color: var(--text-secondary); padding: 60px 24px; font-size: 14px;
+        }
+        .empty-state a { color: var(--accent); text-decoration: none; }
+    </style>
+</head>
+<body>
+
+<div class="chats-app">
+    <header class="chats-header">
+        <a href="radar.html" class="btn-ghost-nav" style="text-decoration:none; padding:6px 10px; border-radius:8px; border:1px solid var(--border); color:var(--text-primary);">← Radar</a>
+        <h2>Messages</h2>
+        <button type="button" class="btn-new-group" id="toggle-group-panel">+ Groupe</button>
+    </header>
+
+    <div id="group-panel">
+        <input type="text" id="group-name" placeholder="Nom du groupe (ex: Foyer Terminale D)" maxlength="60">
+        <div id="group-members-list"></div>
+        <button type="button" class="btn-accent" id="create-group-btn" style="padding:8px 16px; border-radius:8px; border:none; background:var(--accent); color:#0d1117; font-weight:600; cursor:pointer;">Créer le groupe</button>
+    </div>
+
+    <div id="chats-list"></div>
+</div>
+
+<script>
+    const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUserId = null;
+
+    (async () => {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; return; }
+        currentUserId = session.user.id;
+        await loadConversations();
+    })();
+
+    async function loadConversations() {
+        const listEl = document.getElementById('chats-list');
+
+        const { data: memberships, error: memErr } = await supabaseClient
+            .from('conversation_members')
+            .select('conversation_id')
+            .eq('user_id', currentUserId);
+
+        if (memErr) { console.error('Erreur chargement memberships:', memErr); return; }
+
+        const ids = (memberships || []).map(m => m.conversation_id);
+        if (ids.length === 0) { renderEmpty(); return; }
+
+        const { data: conversations, error: convErr } = await supabaseClient
+            .from('conversations')
+            .select('id, type, name, direct_user_a, direct_user_b, created_at')
+            .in('id', ids);
+
+        if (convErr) { console.error('Erreur chargement conversations:', convErr); return; }
+
+        const otherUserIds = (conversations || [])
+            .filter(c => c.type === 'direct')
+            .map(c => c.direct_user_a === currentUserId ? c.direct_user_b : c.direct_user_a);
+
+        let profilesMap = {};
+        if (otherUserIds.length > 0) {
+            const { data: profiles } = await supabaseClient
+                .from('profiles')
+                .select('id, prenom, avatar_url')
+                .in('id', otherUserIds);
+            (profiles || []).forEach(p => { profilesMap[p.id] = p; });
+        }
+
+        const { data: messages } = await supabaseClient
+            .from('messages')
+            .select('conversation_id, content, seq, created_at')
+            .in('conversation_id', ids)
+            .order('seq', { ascending: false });
+
+        const lastMessageMap = {};
+        (messages || []).forEach(m => {
+            if (!lastMessageMap[m.conversation_id]) lastMessageMap[m.conversation_id] = m;
+        });
+
+        renderList(conversations || [], profilesMap, lastMessageMap);
+        loadMembersForGroupPanel(); // pré-charge la liste pour la création de groupe
+    }
+
+    function isValidAvatar(url) {
+        return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+    }
+
+    function renderEmpty() {
+        const listEl = document.getElementById('chats-list');
+        listEl.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'empty-state';
+        p.textContent = 'Aucune conversation pour le moment. Va sur le Radar pour ajouter un ami, ou crée un groupe ci-dessus.';
+        listEl.appendChild(p);
+    }
+
+    function renderList(conversations, profilesMap, lastMessageMap) {
+        const listEl = document.getElementById('chats-list');
+        listEl.innerHTML = '';
+
+        if (conversations.length === 0) { renderEmpty(); return; }
+
+        // Tri par dernier message (plus récent en premier), conversations sans message à la fin
+        conversations.sort((a, b) => {
+            const seqA = lastMessageMap[a.id]?.seq || 0;
+            const seqB = lastMessageMap[b.id]?.seq || 0;
+            return seqB - seqA;
+        });
+
+        conversations.forEach(conv => {
+            const row = document.createElement('a');
+            row.href = `chat.html?c=${encodeURIComponent(conv.id)}`;
+            row.className = 'chat-row';
+
+            let displayName, avatarUrl, isGroup = false;
+            if (conv.type === 'direct') {
+                const otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
+                const profile = profilesMap[otherId];
+                displayName = profile?.prenom || 'Élève';
+                avatarUrl = isValidAvatar(profile?.avatar_url)
+                    ? profile.avatar_url
+                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId || conv.id)}`;
+            } else {
+                displayName = conv.name || 'Groupe';
+                isGroup = true;
+            }
+
+            if (isGroup) {
+                const avatarDiv = document.createElement('div');
+                avatarDiv.className = 'chat-row-avatar group';
+                avatarDiv.textContent = '👥';
+                row.appendChild(avatarDiv);
+            } else {
+                const img = document.createElement('img');
+                img.className = 'chat-row-avatar';
+                img.src = avatarUrl;
+                img.alt = ''; // décoratif, le nom est déjà affiché en texte à côté
+                row.appendChild(img);
+            }
+
+            const info = document.createElement('div');
+            info.className = 'chat-row-info';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'chat-row-name';
+            nameEl.textContent = displayName; // textContent — jamais innerHTML
+            info.appendChild(nameEl);
+
+            const lastMsg = lastMessageMap[conv.id];
+            const previewEl = document.createElement('div');
+            previewEl.className = 'chat-row-preview';
+            previewEl.textContent = lastMsg ? lastMsg.content : 'Aucun message pour le moment';
+            info.appendChild(previewEl);
+
+            row.appendChild(info);
+
+            if (lastMsg) {
+                const timeEl = document.createElement('span');
+                timeEl.className = 'chat-row-time';
+                timeEl.textContent = new Date(lastMsg.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+                row.appendChild(timeEl);
+            }
+
+            listEl.appendChild(row);
+        });
+    }
+
+    // ---------- CRÉATION DE GROUPE ----------
+
+    document.getElementById('toggle-group-panel').addEventListener('click', () => {
+        document.getElementById('group-panel').classList.toggle('open');
+    });
+
+    async function loadMembersForGroupPanel() {
+        const { data: profiles } = await supabaseClient
+            .from('profiles')
+            .select('id, prenom, classe')
+            .neq('id', currentUserId);
+
+        const container = document.getElementById('group-members-list');
+        container.innerHTML = '';
+        (profiles || []).forEach(p => {
+            const label = document.createElement('label');
+            label.className = 'member-checkbox';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = p.id;
+
+            const span = document.createElement('span');
+            span.textContent = `${p.prenom || 'Élève'} — ${p.classe || 'Classe non renseignée'}`; // textContent
+
+            label.appendChild(checkbox);
+            label.appendChild(span);
+            container.appendChild(label);
+        });
+    }
+
+    document.getElementById('create-group-btn').addEventListener('click', async () => {
+        const name = document.getElementById('group-name').value.trim();
+        if (!name) { alert('Donne un nom au groupe.'); return; }
+
+        const checked = Array.from(document.querySelectorAll('#group-members-list input:checked')).map(c => c.value);
+        if (checked.length === 0) { alert('Sélectionne au moins un membre.'); return; }
+
+        const { data: conv, error } = await supabaseClient
+            .from('conversations')
+            .insert({ type: 'group', name, created_by: currentUserId })
+            .select('id')
+            .single();
+
+        if (error) { console.error('Création groupe échouée', error); alert('Erreur lors de la création du groupe.'); return; }
+
+        const rows = [{ conversation_id: conv.id, user_id: currentUserId, role: 'admin' }]
+            .concat(checked.map(id => ({ conversation_id: conv.id, user_id: id, role: 'member' })));
+
+        await supabaseClient.from('conversation_members').insert(rows);
+
+        window.location.href = `chat.html?c=${encodeURIComponent(conv.id)}`;
+    });
+</script>
+
+</body>
+</html>

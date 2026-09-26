@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-school — Chat</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="chat.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <div class="chat-app">
+        <header class="chat-header">
+            <a href="radar.html" class="btn-ghost-nav" style="text-decoration:none;">← Radar</a>
+            <span id="connection-status">Déconnecté</span>
+        </header>
+
+        <div id="chat-messages" class="chat-messages"></div>
+
+        <form id="chat-form" class="chat-input-row">
+            <input type="text" id="chat-input" maxlength="2000" placeholder="Écris un message…" autocomplete="off">
+            <button type="submit" class="btn-accent">Envoyer</button>
+        </form>
+    </div>
+
+    <div id="toast"></div>
+
+    <script src="chat.js"></script>
+    <script>
+        const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let manager = null;
+
+        (async () => {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) { window.location.href = 'index.html'; return; }
+
+            const params = new URLSearchParams(window.location.search);
+            const conversationId = params.get('c');
+            if (!conversationId) {
+                document.getElementById('chat-messages').textContent =
+                    'Aucune conversation ouverte — ouvre un chat depuis le Radar.';
+                return;
+            }
+
+            manager = new ChatManager(conversationId, session.user.id);
+            window.addEventListener('beforeunload', () => manager.stop());
+            await manager.start();
+        })();
+
+        document.getElementById('chat-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('chat-input');
+            if (manager && input.value.trim()) {
+                manager.sendMessage(input.value);
+                input.value = '';
+            }
+        });
+    </script>
+</body>
+</html>

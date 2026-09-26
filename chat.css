@@ -1,184 +1,247 @@
-.chat-app {
-    max-width: 480px;
-    margin: 0 auto;
-    height: 100vh; /* recalculé dynamiquement par chat.html via visualViewport sur mobile */
+/* ==========================================
+   DISPOSITION 3 COLONNES FAÇON WHATSAPP WEB
+   (structure copiée, palette Go-school)
+   ========================================== */
+
+.wa-layout {
     display: flex;
-    flex-direction: column;
+    height: 100vh;
     background: var(--bg-base);
+    overflow: hidden;
 }
 
-/* --- EN-TÊTE : identité de la conversation --- */
-.chat-header {
+/* --- COLONNE 1 : rail de navigation Go-school --- */
+.wa-rail {
+    width: 64px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px 0;
+    gap: 8px;
+}
+
+.wa-rail-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+.wa-rail-icon:hover { background: var(--bg-base); color: var(--text-primary); }
+.wa-rail-icon.active { color: var(--accent); background: rgba(88, 230, 168, 0.1); }
+.wa-rail-bottom { margin-top: auto; }
+
+/* --- COLONNE 2 : liste des conversations --- */
+.wa-list-panel {
+    width: 360px;
+    flex-shrink: 0;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.wa-list-header {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 10px 16px;
+    padding: 12px 16px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
+.wa-avatar-sm {
+    width: 32px; height: 32px; border-radius: 50%;
+    object-fit: cover; background: #21262d;
+}
+.wa-list-title { flex: 1; font-size: 15px; font-weight: 600; color: var(--text-primary); }
 
-.chat-header-back {
-    text-decoration: none;
-    padding: 6px 10px;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    font-size: 15px;
+.wa-search { padding: 8px 12px; flex-shrink: 0; }
+.wa-search input {
+    width: 100%; padding: 8px 12px;
+    background: var(--bg-base); border: 1px solid var(--border);
+    border-radius: 20px; color: var(--text-primary); font-size: 13px;
+}
+.wa-search input:focus { outline: none; border-color: var(--accent); }
+
+.wa-tabs {
+    display: flex; gap: 8px; padding: 4px 12px 10px;
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.wa-tab {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); border-radius: 14px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer;
+}
+.wa-tab.active { border-color: var(--accent); color: var(--accent); }
+
+.wa-group-panel {
+    display: none; padding: 12px 16px; border-bottom: 1px solid var(--border);
     flex-shrink: 0;
 }
-.chat-header-back:hover { background-color: var(--bg-surface); }
+.wa-group-panel.open { display: block; }
+.wa-group-panel input[type="text"] {
+    width: 100%; padding: 8px; margin-bottom: 8px;
+    background: var(--bg-base); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-primary);
+}
+.wa-group-members { max-height: 140px; overflow-y: auto; margin-bottom: 8px; }
+.wa-member-checkbox { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; color: var(--text-primary); }
+.btn-accent-solid {
+    width: 100%; padding: 8px; border: none; border-radius: 6px;
+    background: var(--accent); color: #0d1117; font-weight: 600; cursor: pointer;
+}
+.btn-accent-solid:hover { background: var(--accent-hover); }
 
-.chat-header-avatar {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    object-fit: cover;
-    background-color: #21262d;
-    border: 2px solid var(--border);
-    flex-shrink: 0;
+.wa-conv-list { flex: 1; overflow-y: auto; }
+.wa-empty-list { color: var(--text-secondary); font-size: 13px; text-align: center; padding: 30px 16px; }
+
+.wa-conv-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+.wa-conv-row:hover { background: var(--bg-base); }
+.wa-conv-row.selected { background: rgba(88, 230, 168, 0.08); }
+
+.wa-conv-avatar {
+    width: 46px; height: 46px; border-radius: 50%; flex-shrink: 0;
+    background: #21262d; object-fit: cover;
+}
+.wa-conv-avatar.group {
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-base); border: 1px solid var(--accent); font-size: 18px;
 }
 
-.chat-header-info { flex: 1; min-width: 0; }
-
-.chat-header-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+.wa-conv-info { flex: 1; min-width: 0; }
+.wa-conv-name {
+    font-size: 14px; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-
-#connection-status {
-    font-size: 11px;
-    color: var(--text-secondary);
+.wa-conv-preview {
+    font-size: 12px; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.wa-conv-time { font-size: 10px; color: var(--text-secondary); flex-shrink: 0; }
 
-/* --- ZONE DE MESSAGES --- */
-.chat-messages {
+/* --- COLONNE 3 : conversation active --- */
+.wa-chat-panel {
     flex: 1;
-    overflow-y: auto;
-    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    min-width: 0;
 }
 
-.chat-message-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
+.wa-empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 16px; color: var(--text-secondary);
 }
-.chat-message-row.mine {
-    flex-direction: row-reverse;
+.wa-empty-state svg { color: var(--border); }
+.wa-empty-state p { font-size: 14px; }
+
+.wa-active-chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+.chat-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--bg-surface); flex-shrink: 0;
 }
+.chat-header-back {
+    display: none; /* visible uniquement en mobile, voir media query */
+    background: transparent; border: none; color: var(--text-primary);
+    font-size: 18px; cursor: pointer; padding: 4px;
+}
+.chat-header-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    object-fit: cover; background: #21262d; border: 2px solid var(--border); flex-shrink: 0;
+}
+.chat-header-info { flex: 1; min-width: 0; }
+.chat-header-name {
+    font-size: 14px; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#connection-status { font-size: 11px; color: var(--text-secondary); }
+
+/* Fond texturé façon WhatsApp — motif de points discrets, coût ~0 (pur CSS) */
+.chat-messages {
+    flex: 1; overflow-y: auto; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px;
+    background-color: var(--bg-base);
+    background-image: radial-gradient(rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 22px 22px;
+}
+
+.chat-message-row { display: flex; align-items: flex-end; gap: 8px; }
+.chat-message-row.mine { flex-direction: row-reverse; }
 
 .chat-message-avatar {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background-color: #21262d;
-    flex-shrink: 0;
-    object-fit: cover;
+    width: 24px; height: 24px; border-radius: 50%;
+    background-color: #21262d; flex-shrink: 0; object-fit: cover;
 }
 
-/* --- BULLE : forme asymétrique façon messagerie réelle --- */
 .chat-message {
-    max-width: 75%;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    padding: 8px 12px;
-    border-radius: 14px 14px 14px 4px;
-    display: flex;
-    flex-direction: column;
+    max-width: 75%; background: var(--bg-surface); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 14px 14px 14px 4px;
+    display: flex; flex-direction: column;
 }
-
 .chat-message.mine {
-    border-color: var(--accent);
-    border-radius: 14px 14px 4px 14px;
+    border-color: var(--accent); border-radius: 14px 14px 4px 14px;
     background: rgba(88, 230, 168, 0.08);
 }
-
-.chat-message-sender {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--accent);
-    margin-bottom: 2px;
-}
-
-.chat-message-content {
-    font-size: 14px;
-    color: var(--text-primary);
-    word-break: break-word;
-    white-space: pre-wrap;
-}
-
-.chat-message-meta {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 3px;
-    align-self: flex-end;
-}
-
-.chat-message-time {
-    font-size: 10px;
-    color: var(--text-secondary);
-}
-
-.chat-message-status {
-    font-size: 10px;
-    color: var(--text-secondary);
-}
-
+.chat-message-sender { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 2px; }
+.chat-message-content { font-size: 14px; color: var(--text-primary); word-break: break-word; white-space: pre-wrap; }
+.chat-message-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; align-self: flex-end; }
+.chat-message-time { font-size: 10px; color: var(--text-secondary); }
+.chat-message-status { font-size: 10px; color: var(--text-secondary); }
 .chat-message.failed { border-color: #f85149; }
 .chat-message.failed .chat-message-status { color: #f85149; }
 
-/* --- ZONE DE SAISIE --- */
 .chat-input-row {
-    display: flex;
-    gap: 8px;
-    padding: 10px 16px;
-    border-top: 1px solid var(--border);
-    flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    background: var(--bg-surface); flex-shrink: 0;
 }
-
 #chat-input {
-    flex: 1;
-    padding: 10px 14px;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 20px;
-    color: var(--text-primary);
-    font-size: 14px;
+    flex: 1; padding: 10px 14px; background: var(--bg-base);
+    border: 1px solid var(--border); border-radius: 20px;
+    color: var(--text-primary); font-size: 14px;
 }
-#chat-input:focus {
-    outline: none;
-    border-color: var(--accent);
-}
+#chat-input:focus { outline: none; border-color: var(--accent); }
 
-.chat-input-row .btn-accent {
-    padding: 0 20px;
-    border: none;
-    border-radius: 20px;
-    background: var(--accent);
-    color: #0d1117;
-    font-weight: 600;
-    font-size: 14px;
-    cursor: pointer;
+.btn-send {
+    width: 40px; height: 40px; border-radius: 50%; border: none;
+    background: var(--accent); color: #0d1117;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; flex-shrink: 0;
 }
-.chat-input-row .btn-accent:hover { background: var(--accent-hover); }
+.btn-send:hover { background: var(--accent-hover); }
 
 #toast {
-    position: fixed;
-    bottom: 16px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    padding: 10px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    display: none;
+    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--bg-surface); border: 1px solid var(--border);
+    color: var(--text-primary); padding: 10px 16px; border-radius: 8px;
+    font-size: 13px; display: none; z-index: 1000;
+}
+
+/* ==========================================
+   RESPONSIVE — mobile : un seul panneau visible à la fois
+   ========================================== */
+@media (max-width: 768px) {
+    .wa-rail { display: none; }
+    .wa-list-panel { width: 100%; border-right: none; }
+    .wa-chat-panel { display: none; }
+    .chat-header-back { display: block; }
+
+    .wa-layout.chat-active .wa-list-panel { display: none; }
+    .wa-layout.chat-active .wa-chat-panel { display: flex; width: 100%; }
 }

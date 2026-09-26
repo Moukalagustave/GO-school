@@ -3,111 +3,356 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>Go-school — Chat</title>
+    <title>Go-school — Messages</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="chat.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 
-    <div class="chat-app" id="chat-app">
-        <header class="chat-header">
-            <a href="chats.html" class="chat-header-back">←</a>
-            <img id="chat-header-avatar" class="chat-header-avatar" src="" alt="">
-            <div class="chat-header-info">
-                <div id="chat-header-name" class="chat-header-name">Chargement…</div>
-                <span id="connection-status">Déconnecté</span>
-            </div>
+<div class="wa-layout" id="wa-layout">
+
+    <!-- Colonne 1 : navigation Go-school (équivalent de la barre d'apps, avec NOS icônes) -->
+    <nav class="wa-rail">
+        <a href="radar.html" class="wa-rail-icon" title="Radar" aria-label="Radar des élèves">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>
+        </a>
+        <a href="chat.html" class="wa-rail-icon active" title="Messages" aria-label="Messages">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+        </a>
+        <button type="button" class="wa-rail-icon wa-rail-bottom" id="signout-btn" title="Déconnexion" aria-label="Déconnexion">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+    </nav>
+
+    <!-- Colonne 2 : liste des conversations -->
+    <aside class="wa-list-panel" id="wa-list-panel">
+        <header class="wa-list-header">
+            <img id="my-avatar" class="wa-avatar-sm" src="" alt="Mon profil">
+            <span class="wa-list-title">Messages</span>
+            <button type="button" class="header-icon-btn" id="toggle-group-panel" title="Nouveau groupe" aria-label="Nouveau groupe">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
         </header>
 
-        <div id="chat-messages" class="chat-messages"></div>
+        <div class="wa-search">
+            <input type="text" id="conv-search" placeholder="Rechercher une conversation">
+        </div>
 
-        <form id="chat-form" class="chat-input-row">
-            <input type="text" id="chat-input" maxlength="2000" placeholder="Écris un message…" autocomplete="off">
-            <button type="submit" class="btn-accent">Envoyer</button>
-        </form>
-    </div>
+        <div class="wa-tabs">
+            <button type="button" class="wa-tab active" data-filter="all">Toutes</button>
+            <button type="button" class="wa-tab" data-filter="group">Groupes</button>
+        </div>
 
-    <div id="toast"></div>
+        <div id="group-panel" class="wa-group-panel">
+            <input type="text" id="group-name" placeholder="Nom du groupe" maxlength="60">
+            <div id="group-members-list" class="wa-group-members"></div>
+            <button type="button" class="btn-accent-solid" id="create-group-btn">Créer le groupe</button>
+        </div>
 
-    <script src="chat.js"></script>
-    <script>
-        const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
-        const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
-        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        <div id="chats-list" class="wa-conv-list"></div>
+    </aside>
 
-        let manager = null;
+    <!-- Colonne 3 : conversation active -->
+    <section class="wa-chat-panel" id="wa-chat-panel">
+        <div id="wa-empty-state" class="wa-empty-state">
+            <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            <p>Sélectionne une conversation pour commencer à discuter.</p>
+        </div>
 
-        function isValidAvatarUrlLocal(url) {
-            return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+        <div id="wa-active-chat" class="wa-active-chat" style="display:none;">
+            <header class="chat-header">
+                <button type="button" class="chat-header-back" id="mobile-back-btn" aria-label="Retour à la liste">←</button>
+                <img id="chat-header-avatar" class="chat-header-avatar" src="" alt="">
+                <div class="chat-header-info">
+                    <div id="chat-header-name" class="chat-header-name">—</div>
+                    <span id="connection-status">Déconnecté</span>
+                </div>
+            </header>
+
+            <div id="chat-messages" class="chat-messages"></div>
+
+            <form id="chat-form" class="chat-input-row">
+                <input type="text" id="chat-input" maxlength="2000" placeholder="Écris un message…" autocomplete="off">
+                <button type="submit" class="btn-send" aria-label="Envoyer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+                </button>
+            </form>
+        </div>
+    </section>
+</div>
+
+<div id="toast"></div>
+
+<script src="chat.js"></script>
+<script>
+    const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUserId = null;
+    let manager = null;
+    let allConversations = [];
+    let profilesMapGlobal = {};
+
+    function isValidAvatarUrlLocal(url) {
+        return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+    }
+
+    // ==========================================
+    // GARDE DE SESSION
+    // ==========================================
+    (async () => {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; return; }
+        currentUserId = session.user.id;
+
+        const { data: myProfile } = await supabaseClient
+            .from('profiles').select('avatar_url').eq('id', currentUserId).maybeSingle();
+        document.getElementById('my-avatar').src = isValidAvatarUrlLocal(myProfile?.avatar_url)
+            ? myProfile.avatar_url
+            : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(currentUserId)}`;
+
+        await loadConversationList();
+
+        const params = new URLSearchParams(window.location.search);
+        const initialId = params.get('c');
+        if (initialId) await openConversation(initialId);
+    })();
+
+    // ==========================================
+    // LISTE DES CONVERSATIONS (logique reprise de l'ancien chats.html)
+    // ==========================================
+    async function loadConversationList() {
+        const { data: memberships } = await supabaseClient
+            .from('conversation_members').select('conversation_id').eq('user_id', currentUserId);
+
+        const ids = (memberships || []).map(m => m.conversation_id);
+        if (ids.length === 0) { renderConversationRows([]); return; }
+
+        const { data: conversations } = await supabaseClient
+            .from('conversations')
+            .select('id, type, name, direct_user_a, direct_user_b, created_at')
+            .in('id', ids);
+
+        const otherUserIds = (conversations || [])
+            .filter(c => c.type === 'direct')
+            .map(c => c.direct_user_a === currentUserId ? c.direct_user_b : c.direct_user_a);
+
+        profilesMapGlobal = {};
+        if (otherUserIds.length > 0) {
+            const { data: profiles } = await supabaseClient
+                .from('profiles').select('id, prenom, avatar_url').in('id', otherUserIds);
+            (profiles || []).forEach(p => { profilesMapGlobal[p.id] = p; });
         }
 
-        (async () => {
-            const { data: { session } } = await supabaseClient.auth.getSession();
-            if (!session) { window.location.href = 'index.html'; return; }
+        const { data: messages } = await supabaseClient
+            .from('messages').select('conversation_id, content, seq, created_at')
+            .in('conversation_id', ids).order('seq', { ascending: false });
 
-            const params = new URLSearchParams(window.location.search);
-            const conversationId = params.get('c');
-            if (!conversationId) {
-                document.getElementById('chat-messages').textContent =
-                    'Aucune conversation ouverte — ouvre un chat depuis Messages.';
-                return;
-            }
+        const lastMessageMap = {};
+        (messages || []).forEach(m => { if (!lastMessageMap[m.conversation_id]) lastMessageMap[m.conversation_id] = m; });
 
-            const { data: conv, error: convErr } = await supabaseClient
-                .from('conversations')
-                .select('id, type, name, direct_user_a, direct_user_b')
-                .eq('id', conversationId)
-                .single();
+        allConversations = (conversations || []).map(c => ({ ...c, lastMessage: lastMessageMap[c.id] || null }));
+        allConversations.sort((a, b) => (b.lastMessage?.seq || 0) - (a.lastMessage?.seq || 0));
 
-            if (convErr || !conv) {
-                document.getElementById('chat-header-name').textContent = 'Conversation introuvable';
-                return;
-            }
+        renderConversationRows(allConversations);
+        loadMembersForGroupPanel();
+    }
 
-            const isGroup = conv.type === 'group';
+    function renderConversationRows(conversations, filter = 'all', searchTerm = '') {
+        const listEl = document.getElementById('chats-list');
+        listEl.innerHTML = '';
 
-            if (isGroup) {
-                document.getElementById('chat-header-name').textContent = conv.name || 'Groupe';
-                document.getElementById('chat-header-avatar').style.display = 'none';
-            } else {
-                const otherId = conv.direct_user_a === session.user.id ? conv.direct_user_b : conv.direct_user_a;
-                const { data: profile } = await supabaseClient
-                    .from('profiles').select('prenom, avatar_url').eq('id', otherId).maybeSingle();
-                document.getElementById('chat-header-name').textContent = profile?.prenom || 'Élève';
-                document.getElementById('chat-header-avatar').src = isValidAvatarUrlLocal(profile?.avatar_url)
-                    ? profile.avatar_url
-                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId)}`;
-            }
-
-            manager = new ChatManager(conversationId, session.user.id, isGroup);
-            window.addEventListener('beforeunload', () => manager.stop());
-            await manager.start();
-        })();
-
-        document.getElementById('chat-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            const input = document.getElementById('chat-input');
-            if (manager && input.value.trim()) {
-                manager.sendMessage(input.value);
-                input.value = '';
-            }
+        const filtered = conversations.filter(c => {
+            if (filter === 'group' && c.type !== 'group') return false;
+            const name = c.type === 'group' ? (c.name || 'Groupe')
+                : (profilesMapGlobal[c.direct_user_a === currentUserId ? c.direct_user_b : c.direct_user_a]?.prenom || 'Élève');
+            return name.toLowerCase().includes(searchTerm.toLowerCase());
         });
 
-        // ---------- CLAVIER MOBILE ----------
-        // Sans ceci, le clavier virtuel recouvre le champ de saisie au lieu de
-        // repousser la mise en page — problème réel sur les téléphones d'entrée
-        // de gamme visés par le projet (identifié dès le Jour 1 de ce projet).
-        if (window.visualViewport) {
-            const appEl = document.getElementById('chat-app');
-            const resize = () => {
-                appEl.style.height = window.visualViewport.height + 'px';
-                const messages = document.getElementById('chat-messages');
-                messages.scrollTop = messages.scrollHeight;
-            };
-            window.visualViewport.addEventListener('resize', resize);
-            resize();
+        if (filtered.length === 0) {
+            const p = document.createElement('p');
+            p.className = 'wa-empty-list';
+            p.textContent = conversations.length === 0
+                ? 'Aucune conversation. Va sur le Radar pour ajouter un ami.'
+                : 'Aucun résultat.';
+            listEl.appendChild(p);
+            return;
         }
-    </script>
+
+        filtered.forEach(conv => {
+            const row = document.createElement('div');
+            row.className = 'wa-conv-row';
+            row.dataset.conversationId = conv.id;
+
+            let displayName, avatarUrl, isGroup = conv.type === 'group';
+            if (isGroup) {
+                displayName = conv.name || 'Groupe';
+            } else {
+                const otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
+                const profile = profilesMapGlobal[otherId];
+                displayName = profile?.prenom || 'Élève';
+                avatarUrl = isValidAvatarUrlLocal(profile?.avatar_url)
+                    ? profile.avatar_url
+                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId || conv.id)}`;
+            }
+
+            if (isGroup) {
+                const avatarDiv = document.createElement('div');
+                avatarDiv.className = 'wa-conv-avatar group';
+                avatarDiv.textContent = '👥';
+                row.appendChild(avatarDiv);
+            } else {
+                const img = document.createElement('img');
+                img.className = 'wa-conv-avatar';
+                img.src = avatarUrl;
+                img.alt = '';
+                row.appendChild(img);
+            }
+
+            const info = document.createElement('div');
+            info.className = 'wa-conv-info';
+            const nameEl = document.createElement('div');
+            nameEl.className = 'wa-conv-name';
+            nameEl.textContent = displayName;
+            info.appendChild(nameEl);
+            const previewEl = document.createElement('div');
+            previewEl.className = 'wa-conv-preview';
+            previewEl.textContent = conv.lastMessage ? conv.lastMessage.content : 'Aucun message';
+            info.appendChild(previewEl);
+            row.appendChild(info);
+
+            if (conv.lastMessage) {
+                const timeEl = document.createElement('span');
+                timeEl.className = 'wa-conv-time';
+                timeEl.textContent = new Date(conv.lastMessage.created_at)
+                    .toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+                row.appendChild(timeEl);
+            }
+
+            row.addEventListener('click', () => openConversation(conv.id));
+            listEl.appendChild(row);
+        });
+    }
+
+    document.getElementById('conv-search').addEventListener('input', (e) => {
+        const activeFilter = document.querySelector('.wa-tab.active').dataset.filter;
+        renderConversationRows(allConversations, activeFilter, e.target.value);
+    });
+
+    document.querySelectorAll('.wa-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.wa-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            renderConversationRows(allConversations, tab.dataset.filter, document.getElementById('conv-search').value);
+        });
+    });
+
+    // ==========================================
+    // OUVERTURE D'UNE CONVERSATION (sans rechargement de page)
+    // ==========================================
+    async function openConversation(conversationId) {
+        if (manager) manager.stop();
+        document.getElementById('chat-messages').innerHTML = '';
+
+        history.pushState(null, '', `chat.html?c=${encodeURIComponent(conversationId)}`);
+        document.getElementById('wa-empty-state').style.display = 'none';
+        document.getElementById('wa-active-chat').style.display = 'flex';
+        document.getElementById('wa-layout').classList.add('chat-active'); // affichage mobile
+
+        document.querySelectorAll('.wa-conv-row').forEach(r =>
+            r.classList.toggle('selected', r.dataset.conversationId === conversationId));
+
+        const { data: conv, error } = await supabaseClient
+            .from('conversations')
+            .select('id, type, name, direct_user_a, direct_user_b')
+            .eq('id', conversationId).single();
+
+        if (error || !conv) {
+            document.getElementById('chat-header-name').textContent = 'Conversation introuvable';
+            return;
+        }
+
+        const isGroup = conv.type === 'group';
+        if (isGroup) {
+            document.getElementById('chat-header-name').textContent = conv.name || 'Groupe';
+            document.getElementById('chat-header-avatar').style.display = 'none';
+        } else {
+            const otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
+            const { data: profile } = await supabaseClient
+                .from('profiles').select('prenom, avatar_url').eq('id', otherId).maybeSingle();
+            document.getElementById('chat-header-avatar').style.display = '';
+            document.getElementById('chat-header-name').textContent = profile?.prenom || 'Élève';
+            document.getElementById('chat-header-avatar').src = isValidAvatarUrlLocal(profile?.avatar_url)
+                ? profile.avatar_url
+                : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId)}`;
+        }
+
+        manager = new ChatManager(conversationId, currentUserId, isGroup);
+        await manager.start();
+    }
+
+    document.getElementById('mobile-back-btn').addEventListener('click', () => {
+        document.getElementById('wa-layout').classList.remove('chat-active');
+        if (manager) { manager.stop(); manager = null; }
+        history.pushState(null, '', 'chat.html');
+    });
+
+    document.getElementById('chat-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const input = document.getElementById('chat-input');
+        if (manager && input.value.trim()) {
+            manager.sendMessage(input.value);
+            input.value = '';
+        }
+    });
+
+    window.addEventListener('beforeunload', () => { if (manager) manager.stop(); });
+
+    // ---------- CRÉATION DE GROUPE ----------
+    document.getElementById('toggle-group-panel').addEventListener('click', () => {
+        document.getElementById('group-panel').classList.toggle('open');
+    });
+
+    async function loadMembersForGroupPanel() {
+        const { data: profiles } = await supabaseClient
+            .from('profiles').select('id, prenom, classe').neq('id', currentUserId);
+        const container = document.getElementById('group-members-list');
+        container.innerHTML = '';
+        (profiles || []).forEach(p => {
+            const label = document.createElement('label');
+            label.className = 'wa-member-checkbox';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = p.id;
+            const span = document.createElement('span');
+            span.textContent = `${p.prenom || 'Élève'} — ${p.classe || 'Classe non renseignée'}`;
+            label.appendChild(checkbox);
+            label.appendChild(span);
+            container.appendChild(label);
+        });
+    }
+
+    document.getElementById('create-group-btn').addEventListener('click', async () => {
+        const name = document.getElementById('group-name').value.trim();
+        if (!name) { alert('Donne un nom au groupe.'); return; }
+        const checked = Array.from(document.querySelectorAll('#group-members-list input:checked')).map(c => c.value);
+        if (checked.length === 0) { alert('Sélectionne au moins un membre.'); return; }
+
+        const convId = await createGroupConversation(name, checked, currentUserId);
+        if (convId) {
+            document.getElementById('group-panel').classList.remove('open');
+            document.getElementById('group-name').value = '';
+            await loadConversationList();
+            await openConversation(convId);
+        }
+    });
+
+    document.getElementById('signout-btn').addEventListener('click', async () => {
+        await supabaseClient.auth.signOut();
+        window.location.href = 'index.html';
+    });
+</script>
 </body>
 </html>

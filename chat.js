@@ -1,16 +1,34 @@
 // ==========================================
 // chat.js — Go-school ChatManager
 // Invariants I1-I10 implémentés et commentés aux points critiques.
+// Rendu visuel : bulles asymétriques, avatar + nom d'expéditeur en groupe,
+// horodatage par message.
 // ==========================================
 
 const OUTBOX_KEY = 'goschool_outbox_v1';
 const MAX_OUTBOX = 50;
 const MAX_CONTENT_LENGTH = 2000;
 
+const profileCache = new Map();
+
+function isValidAvatarUrl(url) {
+  return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+}
+
+async function getProfile(userId) {
+  if (profileCache.has(userId)) return profileCache.get(userId);
+  const { data } = await supabaseClient
+    .from('profiles').select('id, prenom, avatar_url').eq('id', userId).maybeSingle();
+  const value = data || { id: userId, prenom: 'Élève', avatar_url: null };
+  profileCache.set(userId, value);
+  return value;
+}
+
 class ChatManager {
-  constructor(conversationId, currentUserId) {
+  constructor(conversationId, currentUserId, isGroup = false) {
     this.conversationId = conversationId;
     this.currentUserId = currentUserId;
+    this.isGroup = isGroup;
     this.state = 'DISCONNECTED';
     this.generation = 0;          // I6 — incrémenté à chaque nouvelle connexion
     this.channel = null;
@@ -238,42 +256,82 @@ class ChatManager {
   renderMessage(msg, kind) {
     const id = msg.client_message_id;
     if (!id) return;
-    let node = document.querySelector(`[data-client-id="${cssEscape(id)}"]`);
-    if (!node) {
-      node = document.createElement('div');
-      node.className = 'chat-message' + (msg.sender_id === this.currentUserId ? ' mine' : '');
-      node.dataset.clientId = id;
+    const isMine = msg.sender_id === this.currentUserId;
 
-      const bubble = document.createElement('span');
-      bubble.className = 'chat-message-content';
-      bubble.textContent = msg.content; // JAMAIS innerHTML — protection XSS absolue
-      node.appendChild(bubble);
+    let row = document.querySelector(`[data-client-id="${cssEscape(id)}"]`);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'chat-message-row' + (isMine ? ' mine' : '');
+      row.dataset.clientId = id;
+
+      // Avatar de l'expéditeur — uniquement en groupe, uniquement pour les autres
+      if (this.isGroup && !isMine) {
+        const avatarImg = document.createElement('img');
+        avatarImg.className = 'chat-message-avatar';
+        avatarImg.alt = '';
+        row.appendChild(avatarImg);
+        getProfile(msg.sender_id).then(p => {
+          avatarImg.src = isValidAvatarUrl(p.avatar_url)
+            ? p.avatar_url
+            : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(msg.sender_id)}`;
+        });
+      }
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-message' + (isMine ? ' mine' : '');
+
+      if (this.isGroup && !isMine) {
+        const senderEl = document.createElement('span');
+        senderEl.className = 'chat-message-sender';
+        bubble.appendChild(senderEl);
+        getProfile(msg.sender_id).then(p => { senderEl.textContent = p.prenom || 'Élève'; });
+      }
+
+      const content = document.createElement('span');
+      content.className = 'chat-message-content';
+      content.textContent = msg.content; // JAMAIS innerHTML — protection XSS absolue
+      bubble.appendChild(content);
+
+      const meta = document.createElement('div');
+      meta.className = 'chat-message-meta';
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'chat-message-time';
+      const ts = msg.created_at || msg.created_at_local;
+      timeEl.textContent = ts
+        ? new Date(ts).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+        : '';
+      meta.appendChild(timeEl);
 
       const status = document.createElement('span');
       status.className = 'chat-message-status';
-      node.appendChild(status);
+      meta.appendChild(status);
 
-      document.getElementById('chat-messages').appendChild(node);
-      node.scrollIntoView({ block: 'nearest' });
+      bubble.appendChild(meta);
+      row.appendChild(bubble);
+      document.getElementById('chat-messages').appendChild(row);
+      row.scrollIntoView({ block: 'nearest' });
     }
-    this.updateStatusNode(node, kind === 'confirmed' ? 'sent' : kind);
+    this.updateStatusNode(row, kind === 'confirmed' ? 'sent' : kind);
   }
 
-  updateStatusNode(node, status) {
-    const statusEl = node.querySelector('.chat-message-status');
+  updateStatusNode(row, status) {
+    const statusEl = row.querySelector('.chat-message-status');
+    const bubbleEl = row.querySelector('.chat-message');
     const labels = { pending: 'En attente…', sending: 'Envoi…', sent: '', failed: 'Échec — réessaie' };
-    statusEl.textContent = labels[status] ?? '';
-    node.classList.toggle('failed', status === 'failed');
+    if (statusEl) statusEl.textContent = labels[status] ?? '';
+    if (bubbleEl) bubbleEl.classList.toggle('failed', status === 'failed');
   }
 }
 
 function renderMessageStatus(clientId, status) {
-  const node = document.querySelector(`[data-client-id="${cssEscape(clientId)}"]`);
-  if (!node) return;
+  const row = document.querySelector(`[data-client-id="${cssEscape(clientId)}"]`);
+  if (!row) return;
   const labels = { sending: 'Envoi…', sent: '', failed: 'Échec — réessaie' };
-  const statusEl = node.querySelector('.chat-message-status');
+  const statusEl = row.querySelector('.chat-message-status');
+  const bubbleEl = row.querySelector('.chat-message');
   if (statusEl) statusEl.textContent = labels[status] ?? '';
-  node.classList.toggle('failed', status === 'failed');
+  if (bubbleEl) bubbleEl.classList.toggle('failed', status === 'failed');
 }
 
 function renderConnectionStatus(state) {
@@ -309,7 +367,6 @@ async function createDirectConversation(otherUserId, currentUserId) {
 
   if (error) {
     if (error.code === '23505') {
-      // La conversation directe existe déjà — on la retrouve plutôt que d'échouer
       const { data: existing } = await supabaseClient
         .from('conversations')
         .select('id')

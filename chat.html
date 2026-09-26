@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Go-school — Chat</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="chat.css">
@@ -10,10 +10,14 @@
 </head>
 <body>
 
-    <div class="chat-app">
+    <div class="chat-app" id="chat-app">
         <header class="chat-header">
-            <a href="radar.html" class="btn-ghost-nav" style="text-decoration:none;">← Radar</a>
-            <span id="connection-status">Déconnecté</span>
+            <a href="chats.html" class="chat-header-back">←</a>
+            <img id="chat-header-avatar" class="chat-header-avatar" src="" alt="">
+            <div class="chat-header-info">
+                <div id="chat-header-name" class="chat-header-name">Chargement…</div>
+                <span id="connection-status">Déconnecté</span>
+            </div>
         </header>
 
         <div id="chat-messages" class="chat-messages"></div>
@@ -34,6 +38,10 @@
 
         let manager = null;
 
+        function isValidAvatarUrlLocal(url) {
+            return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+        }
+
         (async () => {
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (!session) { window.location.href = 'index.html'; return; }
@@ -42,11 +50,37 @@
             const conversationId = params.get('c');
             if (!conversationId) {
                 document.getElementById('chat-messages').textContent =
-                    'Aucune conversation ouverte — ouvre un chat depuis le Radar.';
+                    'Aucune conversation ouverte — ouvre un chat depuis Messages.';
                 return;
             }
 
-            manager = new ChatManager(conversationId, session.user.id);
+            const { data: conv, error: convErr } = await supabaseClient
+                .from('conversations')
+                .select('id, type, name, direct_user_a, direct_user_b')
+                .eq('id', conversationId)
+                .single();
+
+            if (convErr || !conv) {
+                document.getElementById('chat-header-name').textContent = 'Conversation introuvable';
+                return;
+            }
+
+            const isGroup = conv.type === 'group';
+
+            if (isGroup) {
+                document.getElementById('chat-header-name').textContent = conv.name || 'Groupe';
+                document.getElementById('chat-header-avatar').style.display = 'none';
+            } else {
+                const otherId = conv.direct_user_a === session.user.id ? conv.direct_user_b : conv.direct_user_a;
+                const { data: profile } = await supabaseClient
+                    .from('profiles').select('prenom, avatar_url').eq('id', otherId).maybeSingle();
+                document.getElementById('chat-header-name').textContent = profile?.prenom || 'Élève';
+                document.getElementById('chat-header-avatar').src = isValidAvatarUrlLocal(profile?.avatar_url)
+                    ? profile.avatar_url
+                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId)}`;
+            }
+
+            manager = new ChatManager(conversationId, session.user.id, isGroup);
             window.addEventListener('beforeunload', () => manager.stop());
             await manager.start();
         })();
@@ -59,6 +93,21 @@
                 input.value = '';
             }
         });
+
+        // ---------- CLAVIER MOBILE ----------
+        // Sans ceci, le clavier virtuel recouvre le champ de saisie au lieu de
+        // repousser la mise en page — problème réel sur les téléphones d'entrée
+        // de gamme visés par le projet (identifié dès le Jour 1 de ce projet).
+        if (window.visualViewport) {
+            const appEl = document.getElementById('chat-app');
+            const resize = () => {
+                appEl.style.height = window.visualViewport.height + 'px';
+                const messages = document.getElementById('chat-messages');
+                messages.scrollTop = messages.scrollHeight;
+            };
+            window.visualViewport.addEventListener('resize', resize);
+            resize();
+        }
     </script>
 </body>
 </html>

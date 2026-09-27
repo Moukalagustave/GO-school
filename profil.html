@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go-school — Mon profil</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        .profil-container { max-width: 480px; margin: 0 auto; padding: 20px 16px; }
+        .profil-header {
+            display: flex; align-items: center; gap: 12px;
+            padding-bottom: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border);
+        }
+        .profil-header h2 { font-size: 18px; margin: 0; }
+
+        .avatar-section {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 12px; padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+        }
+        .avatar-preview {
+            width: 96px; height: 96px; border-radius: 50%;
+            object-fit: cover; background: #21262d; border: 3px solid var(--accent);
+        }
+        .avatar-status {
+            font-size: 12px; color: var(--text-secondary); text-align: center; max-width: 320px;
+        }
+        .avatar-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+
+        .btn-outline {
+            background: transparent; border: 1px solid var(--accent); color: var(--accent);
+            padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer;
+        }
+        .btn-outline:hover { background: rgba(88, 230, 168, 0.1); }
+        .btn-outline.secondary { border-color: var(--border); color: var(--text-secondary); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+        .form-group input {
+            width: 100%; padding: 10px 12px; background: var(--bg-surface);
+            border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;
+        }
+        .form-group input:focus { outline: none; border-color: var(--accent); }
+        .form-hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+
+        .btn-save {
+            width: 100%; padding: 12px; border: none; border-radius: 8px;
+            background: var(--accent); color: #0d1117; font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 8px;
+        }
+        .btn-save:hover { background: var(--accent-hover); }
+
+        #toast {
+            position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+            background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary);
+            padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="profil-container">
+    <header class="profil-header">
+        <a href="radar.html" class="header-icon-btn" aria-label="Retour">←</a>
+        <h2>Mon profil</h2>
+    </header>
+
+    <section class="avatar-section">
+        <img id="avatar-preview" class="avatar-preview" src="" alt="Ton avatar">
+        <p id="avatar-status" class="avatar-status">Chargement…</p>
+        <div class="avatar-actions">
+            <button type="button" class="btn-outline" id="change-photo-btn">Changer ma photo de profil</button>
+            <button type="button" class="btn-outline secondary" id="revert-avatar-btn" style="display:none;">Revenir à l'avatar généré</button>
+        </div>
+        <input type="file" id="photo-input" accept="image/jpeg,image/png,image/webp" style="display:none;">
+    </section>
+
+    <form id="profile-form">
+        <div class="form-group">
+            <label for="prenom">Prénom</label>
+            <input type="text" id="prenom" maxlength="60">
+        </div>
+        <div class="form-group">
+            <label for="classe">Classe</label>
+            <input type="text" id="classe" maxlength="30" placeholder="ex: Terminale D">
+        </div>
+        <div class="form-group">
+            <label for="quartier">Quartier</label>
+            <input type="text" id="quartier" maxlength="60" placeholder="ex: Akwa, Douala">
+        </div>
+        <div class="form-group">
+            <label for="matieres-fortes">Matières fortes</label>
+            <input type="text" id="matieres-fortes" placeholder="ex: Physique, Maths">
+            <p class="form-hint">Sépare plusieurs matières par une virgule.</p>
+        </div>
+        <div class="form-group">
+            <label for="matieres-faibles">Matières à travailler</label>
+            <input type="text" id="matieres-faibles" placeholder="ex: SVT, Anglais">
+            <p class="form-hint">Sépare plusieurs matières par une virgule.</p>
+        </div>
+        <button type="submit" class="btn-save">Enregistrer</button>
+    </form>
+</div>
+
+<div id="toast"></div>
+
+<script>
+    const SUPABASE_URL = 'https://afwutxnapjrauouazcui.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_toczTCF8xRgxwebjftoXuA_QAO8MTKp';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentUserId = null;
+    const MAX_PHOTO_SIZE = 3 * 1024 * 1024; // doit rester cohérent avec la limite du bucket Storage
+
+    function showToast(msg) {
+        const t = document.getElementById('toast');
+        t.textContent = msg;
+        t.style.display = 'block';
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    function isCustomPhoto(url) {
+        return typeof url === 'string' && url.includes('/storage/v1/object/public/avatars/');
+    }
+
+    function genericAvatarUrl(userId) {
+        return `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(userId)}`;
+    }
+
+    function renderAvatar(avatarUrl) {
+        const isCustom = isCustomPhoto(avatarUrl);
+        document.getElementById('avatar-preview').src = isCustom ? avatarUrl : genericAvatarUrl(currentUserId);
+        document.getElementById('avatar-status').textContent = isCustom
+            ? 'Tu utilises actuellement ta propre photo.'
+            : 'Tu utilises actuellement un avatar généré automatiquement.';
+        document.getElementById('revert-avatar-btn').style.display = isCustom ? 'inline-block' : 'none';
+    }
+
+    (async () => {
+        const { data: { session } } = await supabaseClient.auth.getSession();
+        if (!session) { window.location.href = 'index.html'; return; }
+        currentUserId = session.user.id;
+
+        const { data: profile, error } = await supabaseClient
+            .from('profiles')
+            .select('prenom, classe, quartier, matieres_fortes, matieres_faibles, avatar_url')
+            .eq('id', currentUserId)
+            .maybeSingle();
+
+        if (error) { console.error('Erreur chargement profil:', error); return; }
+
+        renderAvatar(profile?.avatar_url);
+        document.getElementById('prenom').value = profile?.prenom || '';
+        document.getElementById('classe').value = profile?.classe || '';
+        document.getElementById('quartier').value = profile?.quartier || '';
+        document.getElementById('matieres-fortes').value = (profile?.matieres_fortes || []).join(', ');
+        document.getElementById('matieres-faibles').value = (profile?.matieres_faibles || []).join(', ');
+    })();
+
+    // ---------- CHANGEMENT DE PHOTO ----------
+    document.getElementById('change-photo-btn').addEventListener('click', () => {
+        document.getElementById('photo-input').click();
+    });
+
+    document.getElementById('photo-input').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > MAX_PHOTO_SIZE) {
+            showToast('Photo trop lourde (max 3 Mo). Choisis-en une autre.');
+            e.target.value = '';
+            return;
+        }
+
+        showToast('Envoi de la photo…');
+        const ext = file.name.split('.').pop().toLowerCase();
+        const path = `${currentUserId}/photo.${ext}`;
+
+        const { error: uploadError } = await supabaseClient.storage
+            .from('avatars')
+            .upload(path, file, { upsert: true, contentType: file.type });
+
+        if (uploadError) {
+            console.error('Échec upload avatar:', uploadError);
+            showToast("Échec de l'envoi. Réessaie.");
+            e.target.value = '';
+            return;
+        }
+
+        const { data: publicUrlData } = supabaseClient.storage.from('avatars').getPublicUrl(path);
+        // Casse le cache navigateur si une photo existait déjà au même chemin
+        const bustedUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+
+        const { error: updateError } = await supabaseClient
+            .from('profiles').update({ avatar_url: bustedUrl }).eq('id', currentUserId);
+
+        if (updateError) {
+            console.error('Échec mise à jour profil:', updateError);
+            showToast("Photo envoyée mais échec de l'enregistrement. Réessaie.");
+            e.target.value = '';
+            return;
+        }
+
+        renderAvatar(bustedUrl);
+        showToast('Photo de profil mise à jour.');
+        e.target.value = '';
+    });
+
+    document.getElementById('revert-avatar-btn').addEventListener('click', async () => {
+        const { error } = await supabaseClient
+            .from('profiles').update({ avatar_url: null }).eq('id', currentUserId);
+        if (error) { console.error(error); showToast('Erreur, réessaie.'); return; }
+        renderAvatar(null);
+        showToast('Retour à l\u2019avatar généré.');
+    });
+
+    // ---------- FORMULAIRE PROFIL ----------
+    document.getElementById('profile-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const parseList = (val) => val.split(',').map(s => s.trim()).filter(Boolean);
+
+        const { error } = await supabaseClient.from('profiles').update({
+            prenom: document.getElementById('prenom').value.trim() || null,
+            classe: document.getElementById('classe').value.trim() || null,
+            quartier: document.getElementById('quartier').value.trim() || null,
+            matieres_fortes: parseList(document.getElementById('matieres-fortes').value),
+            matieres_faibles: parseList(document.getElementById('matieres-faibles').value)
+        }).eq('id', currentUserId);
+
+        if (error) { console.error('Échec enregistrement profil:', error); showToast('Erreur — réessaie.'); return; }
+        showToast('Profil enregistré.');
+    });
+</script>
+</body>
+</html>

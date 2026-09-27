@@ -1,13 +1,15 @@
 // ==========================================
 // chat.js — Go-school ChatManager
-// Invariants I1-I10 implémentés et commentés aux points critiques.
-// Ajouts : indicateur "en train d'écrire" (Realtime Broadcast),
-// marquage de lecture (last_read_seq) pour le badge de messages non lus.
+// Invariants I1-I10 inchangés. Ajouts de ce tour :
+// - accusés Envoyé / Distribué / Lu (1-à-1 uniquement)
+// - watchdog anti-blocage sur l'envoi (15s)
+// - frappe en cours (déjà présent)
 // ==========================================
 
 const OUTBOX_KEY = 'goschool_outbox_v1';
 const MAX_OUTBOX = 50;
 const MAX_CONTENT_LENGTH = 2000;
+const SEND_TIMEOUT_MS = 15000;
 
 const profileCache = new Map();
 let typingHideTimeout = null;
@@ -37,19 +39,33 @@ function showTypingIndicator() {
   typingHideTimeout = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
+  ]);
+}
+
 class ChatManager {
   constructor(conversationId, currentUserId, isGroup = false) {
     this.conversationId = conversationId;
     this.currentUserId = currentUserId;
     this.isGroup = isGroup;
     this.state = 'DISCONNECTED';
-    this.generation = 0;          // I6 — incrémenté à chaque nouvelle connexion
+    this.generation = 0;
     this.channel = null;
-    this.reconnectTimer = null;   // I7 — un seul timer vivant à la fois
+    this.reconnectTimer = null;
     this.reconnectDelays = [2000, 5000, 10000];
     this.reconnectAttempt = 0;
-    this.lastKnownSeq = 0;        // curseur pur sur seq, pas de chevauchement nécessaire
+    this.lastKnownSeq = 0;
     this.stopped = false;
+
+    // Accusés de réception (1-à-1 uniquement) — état du membre en face
+    this.otherReadSeq = 0;
+    this.otherDeliveredSeq = 0;
+
+    this._onVisibilityChange = () => { if (document.visibilityState === 'visible') this.markAsRead(); };
+    document.addEventListener('visibilitychange', this._onVisibilityChange);
   }
 
   setState(next) {
@@ -62,11 +78,11 @@ class ChatManager {
     await this.connect();
   }
 
-  // Déconnexion volontaire — I9/I11 : n'entraîne JAMAIS de reconnexion automatique
   stop() {
     this.stopped = true;
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    document.removeEventListener('visibilitychange', this._onVisibilityChange);
     if (this.channel) {
       supabaseClient.removeChannel(this.channel);
       this.channel = null;
@@ -79,9 +95,6 @@ class ChatManager {
     this.generation += 1;
     const myGen = this.generation;
 
-    // I8 — détruire l'ancien channel avant toute recréation.
-    // Contourne l'issue #1732 (JWT non rafraîchi sur un channel repris silencieusement) :
-    // on ne "reprend" jamais un channel, on en recrée toujours un neuf.
     if (this.channel) {
       await supabaseClient.removeChannel(this.channel);
       this.channel = null;
@@ -95,20 +108,31 @@ class ChatManager {
       event: 'INSERT', schema: 'public', table: 'messages',
       filter: `conversation_id=eq.${this.conversationId}`
     }, (payload) => {
-      if (myGen !== this.generation) return; // I6 — callback d'une génération périmée, ignoré
+      if (myGen !== this.generation) return;
       this.handleRealtimeInsert(payload.new);
     });
 
-    // Indicateur "en train d'écrire" — Broadcast, pas postgres_changes.
-    // Pas de garantie de délivrance, voulu : un signal raté n'a aucune conséquence,
-    // contrairement à un message perdu.
+    // Accusés de réception en direct — mise à jour de la ligne conversation_members de l'AUTRE membre
+    if (!this.isGroup) {
+      channel.on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'conversation_members',
+        filter: `conversation_id=eq.${this.conversationId}`
+      }, (payload) => {
+        if (myGen !== this.generation) return;
+        if (payload.new.user_id === this.currentUserId) return; // ignore ses propres mises à jour
+        this.otherReadSeq = payload.new.last_read_seq || 0;
+        this.otherDeliveredSeq = payload.new.last_delivered_seq || 0;
+        this.refreshOwnMessageReceipts();
+      });
+    }
+
     channel.on('broadcast', { event: 'typing' }, ({ payload }) => {
       if (myGen !== this.generation) return;
       if (payload?.user_id && payload.user_id !== this.currentUserId) showTypingIndicator();
     });
 
     channel.subscribe(async (status) => {
-      if (myGen !== this.generation) return; // I6
+      if (myGen !== this.generation) return;
       if (status === 'SUBSCRIBED') {
         this.setState('SUBSCRIBED');
         await this.syncAndFlush(myGen);
@@ -123,7 +147,6 @@ class ChatManager {
   handleDisconnect(myGen) {
     if (myGen !== this.generation || this.stopped) return;
     this.setState('RECONNECT_WAIT');
-    // I7 — on annule systématiquement le timer précédent avant d'en poser un nouveau
     clearTimeout(this.reconnectTimer);
     const delay = this.reconnectDelays[Math.min(this.reconnectAttempt, this.reconnectDelays.length - 1)];
     this.reconnectAttempt += 1;
@@ -134,8 +157,7 @@ class ChatManager {
 
   async syncAndFlush(myGen) {
     this.setState('SYNCING');
-    // I4/I14 — curseur pur sur seq (bigserial, ordre total garanti par Postgres,
-    // contrairement à created_at). Pas de chevauchement temporel nécessaire.
+
     const { data, error } = await supabaseClient
       .from('messages')
       .select('id, conversation_id, sender_id, client_message_id, content, created_at, seq, reported')
@@ -143,7 +165,7 @@ class ChatManager {
       .gt('seq', this.lastKnownSeq)
       .order('seq', { ascending: true });
 
-    if (myGen !== this.generation) return; // la génération a changé pendant l'await
+    if (myGen !== this.generation) return;
 
     if (!error && data) {
       data.forEach(msg => {
@@ -154,31 +176,70 @@ class ChatManager {
       console.error('Erreur synchronisation REST:', error);
     }
 
-    // Le compteur de backoff ne revient à zéro qu'après un cycle SYNCING réellement abouti
+    // État initial des accusés de l'autre membre (1-à-1 uniquement)
+    if (!this.isGroup) {
+      const { data: otherMember } = await supabaseClient
+        .from('conversation_members')
+        .select('user_id, last_read_seq, last_delivered_seq')
+        .eq('conversation_id', this.conversationId)
+        .neq('user_id', this.currentUserId)
+        .maybeSingle();
+      if (otherMember) {
+        this.otherReadSeq = otherMember.last_read_seq || 0;
+        this.otherDeliveredSeq = otherMember.last_delivered_seq || 0;
+        this.refreshOwnMessageReceipts();
+      }
+    }
+
     this.reconnectAttempt = 0;
     this.setState('READY');
+    await this.markAsDelivered();
     await this.markAsRead();
     await this.flushOutbox();
   }
 
   handleRealtimeInsert(row) {
-    // I5 — passe par la même fonction de rendu que REST/Outbox : dédup automatique
     this.renderMessage(row, 'confirmed');
     if (row.seq && row.seq > this.lastKnownSeq) this.lastKnownSeq = row.seq;
-    if (this.state === 'READY') this.markAsRead(); // conversation ouverte : le nouveau message est vu immédiatement
+    if (this.state === 'READY') {
+      this.markAsDelivered();
+      this.markAsRead();
+    }
   }
 
-  // ---------- LECTURE / BADGE NON-LUS ----------
+  // ---------- ACCUSÉS : DISTRIBUÉ vs LU ----------
+
+  async markAsDelivered() {
+    if (this.lastKnownSeq <= 0) return;
+    await supabaseClient
+      .from('conversation_members')
+      .update({ last_delivered_seq: this.lastKnownSeq })
+      .eq('conversation_id', this.conversationId)
+      .eq('user_id', this.currentUserId)
+      .lt('last_delivered_seq', this.lastKnownSeq);
+  }
 
   async markAsRead() {
-    if (this.lastKnownSeq <= 0) return;
-    // Écrit uniquement si ça avance réellement — évite une requête inutile à chaque appel
+    // "Lu" exige explicitement l'onglet au premier plan — sinon ce n'est que "Distribué"
+    if (this.lastKnownSeq <= 0 || document.visibilityState !== 'visible') return;
     await supabaseClient
       .from('conversation_members')
       .update({ last_read_seq: this.lastKnownSeq })
       .eq('conversation_id', this.conversationId)
       .eq('user_id', this.currentUserId)
       .lt('last_read_seq', this.lastKnownSeq);
+  }
+
+  refreshOwnMessageReceipts() {
+    document.querySelectorAll('#chat-messages .chat-message-row.mine').forEach(row => {
+      const seq = Number(row.dataset.seq || 0);
+      if (!seq) return; // message encore local (pending/sending), pas de accusé à afficher
+      const statusEl = row.querySelector('.chat-message-status');
+      if (!statusEl) return;
+      if (this.otherReadSeq >= seq) statusEl.textContent = 'Lu ✓✓';
+      else if (this.otherDeliveredSeq >= seq) statusEl.textContent = 'Distribué ✓';
+      // sinon : laisse "Envoyé" (vide) tel quel, pas encore d'accusé de l'autre côté
+    });
   }
 
   notifyTyping() {
@@ -223,7 +284,6 @@ class ChatManager {
       return;
     }
 
-    // I1 — UUID généré ici, une seule fois, avant toute tentative réseau, conservé sur tout retry
     const clientMessageId = crypto.randomUUID();
     const entry = {
       client_message_id: clientMessageId,
@@ -241,7 +301,7 @@ class ChatManager {
   }
 
   async flushOutbox() {
-    if (this.state !== 'READY') return; // jamais de tentative d'envoi hors ligne
+    if (this.state !== 'READY') return;
     let outbox = this.loadOutbox();
 
     for (const entry of outbox) {
@@ -250,12 +310,27 @@ class ChatManager {
       this.saveOutbox(outbox);
       renderMessageStatus(entry.client_message_id, 'sending');
 
-      const { error } = await supabaseClient.from('messages').insert({
-        conversation_id: entry.conversation_id,
-        sender_id: entry.sender_id,
-        client_message_id: entry.client_message_id,
-        content: entry.content
-      });
+      let insertResult;
+      try {
+        insertResult = await withTimeout(
+          supabaseClient.from('messages').insert({
+            conversation_id: entry.conversation_id,
+            sender_id: entry.sender_id,
+            client_message_id: entry.client_message_id,
+            content: entry.content
+          }),
+          SEND_TIMEOUT_MS
+        );
+      } catch (timeoutErr) {
+        // Watchdog anti-blocage : l'état optimiste ne reste jamais bloqué indéfiniment.
+        // Le message reste en Outbox (pas supprimé) — un prochain flush retentera,
+        // le double-check 23505 protège contre un doublon si l'INSERT avait en fait réussi.
+        entry.status = 'failed';
+        renderMessageStatus(entry.client_message_id, 'failed');
+        continue;
+      }
+
+      const { error } = insertResult;
 
       if (!error) {
         entry.status = 'sent';
@@ -264,7 +339,6 @@ class ChatManager {
       }
 
       if (error.code === '23505') {
-        // I3 — un 23505 n'est JAMAIS un succès automatique.
         const { data: confirmRow } = await supabaseClient
           .from('messages')
           .select('sender_id, conversation_id, client_message_id')
@@ -301,6 +375,7 @@ class ChatManager {
       row = document.createElement('div');
       row.className = 'chat-message-row' + (isMine ? ' mine' : '');
       row.dataset.clientId = id;
+      if (msg.seq) row.dataset.seq = msg.seq;
 
       if (this.isGroup && !isMine) {
         const avatarImg = document.createElement('img');
@@ -326,7 +401,7 @@ class ChatManager {
 
       const content = document.createElement('span');
       content.className = 'chat-message-content';
-      content.textContent = msg.content; // JAMAIS innerHTML — protection XSS absolue
+      content.textContent = msg.content;
       bubble.appendChild(content);
 
       const meta = document.createElement('div');
@@ -348,8 +423,11 @@ class ChatManager {
       row.appendChild(bubble);
       document.getElementById('chat-messages').appendChild(row);
       row.scrollIntoView({ block: 'nearest' });
+    } else if (msg.seq) {
+      row.dataset.seq = msg.seq;
     }
     this.updateStatusNode(row, kind === 'confirmed' ? 'sent' : kind);
+    if (isMine && msg.seq) this.refreshOwnMessageReceipts();
   }
 
   updateStatusNode(row, status) {

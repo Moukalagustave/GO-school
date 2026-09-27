@@ -62,7 +62,10 @@
         <div id="wa-active-chat" class="wa-active-chat" style="display:none;">
             <header class="chat-header">
                 <button type="button" class="chat-header-back" id="mobile-back-btn" aria-label="Retour à la liste">←</button>
-                <img id="chat-header-avatar" class="chat-header-avatar" src="" alt="">
+                <div class="chat-header-avatar-wrap">
+                    <img id="chat-header-avatar" class="chat-header-avatar" src="" alt="">
+                    <span id="chat-header-online-dot" class="online-dot" style="display:none;"></span>
+                </div>
                 <div class="chat-header-info">
                     <div id="chat-header-name" class="chat-header-name">—</div>
                     <span id="connection-status">Déconnecté</span>
@@ -96,6 +99,31 @@
     let profilesMapGlobal = {};
     let readMapGlobal = {};
 
+    // ---------- PRÉSENCE (Supabase Presence — heartbeat/reconnexion gérés en interne) ----------
+    let presenceChannel = null;
+    const onlineUserIds = new Set();
+
+    function initPresence() {
+        presenceChannel = supabaseClient.channel('presence:online', {
+            config: { presence: { key: currentUserId } }
+        });
+        presenceChannel.on('presence', { event: 'sync' }, () => {
+            const state = presenceChannel.presenceState();
+            onlineUserIds.clear();
+            Object.keys(state).forEach(id => onlineUserIds.add(id));
+            updateOnlineDots();
+        });
+        presenceChannel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED') await presenceChannel.track({ online_at: new Date().toISOString() });
+        });
+    }
+
+    function updateOnlineDots() {
+        document.querySelectorAll('[data-online-for]').forEach(el => {
+            el.style.display = onlineUserIds.has(el.dataset.onlineFor) ? 'block' : 'none';
+        });
+    }
+
     function isValidAvatarUrlLocal(url) {
         return typeof url === 'string' && (
             url.startsWith('https://api.dicebear.com/') ||
@@ -114,6 +142,7 @@
             ? myProfile.avatar_url
             : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(currentUserId)}`;
 
+        initPresence();
         await loadConversationList();
 
         const params = new URLSearchParams(window.location.search);
@@ -121,8 +150,16 @@
         if (initialId) await openConversation(initialId);
     })();
 
+    // ---------- TITRE D'ONGLET DYNAMIQUE ----------
+    function updateTabTitle() {
+        const totalUnread = allConversations.filter(c =>
+            c.lastMessage && c.lastMessage.seq > (readMapGlobal[c.id] || 0)
+        ).length;
+        document.title = totalUnread > 0 ? `(${totalUnread}) Go-school — Messages` : 'Go-school — Messages';
+    }
+
     // ==========================================
-    // LISTE DES CONVERSATIONS — avec suivi de lecture (badge non-lus)
+    // LISTE DES CONVERSATIONS
     // ==========================================
     async function loadConversationList() {
         const { data: memberships } = await supabaseClient
@@ -132,7 +169,7 @@
         readMapGlobal = {};
         (memberships || []).forEach(m => { readMapGlobal[m.conversation_id] = m.last_read_seq || 0; });
 
-        if (ids.length === 0) { renderConversationRows([]); return; }
+        if (ids.length === 0) { renderConversationRows([]); updateTabTitle(); return; }
 
         const { data: conversations } = await supabaseClient
             .from('conversations')
@@ -161,6 +198,7 @@
         allConversations.sort((a, b) => (b.lastMessage?.seq || 0) - (a.lastMessage?.seq || 0));
 
         renderConversationRows(allConversations);
+        updateTabTitle();
         loadMembersForGroupPanel();
     }
 
@@ -190,11 +228,11 @@
             row.className = 'wa-conv-row';
             row.dataset.conversationId = conv.id;
 
-            let displayName, avatarUrl, isGroup = conv.type === 'group';
+            let displayName, avatarUrl, isGroup = conv.type === 'group', otherId = null;
             if (isGroup) {
                 displayName = conv.name || 'Groupe';
             } else {
-                const otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
+                otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
                 const profile = profilesMapGlobal[otherId];
                 displayName = profile?.prenom || 'Élève';
                 avatarUrl = isValidAvatarUrlLocal(profile?.avatar_url)
@@ -202,18 +240,28 @@
                     : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId || conv.id)}`;
             }
 
+            const avatarWrap = document.createElement('div');
+            avatarWrap.className = 'wa-conv-avatar-wrap';
+
             if (isGroup) {
                 const avatarDiv = document.createElement('div');
                 avatarDiv.className = 'wa-conv-avatar group';
                 avatarDiv.textContent = '👥';
-                row.appendChild(avatarDiv);
+                avatarWrap.appendChild(avatarDiv);
             } else {
                 const img = document.createElement('img');
                 img.className = 'wa-conv-avatar';
                 img.src = avatarUrl;
                 img.alt = '';
-                row.appendChild(img);
+                avatarWrap.appendChild(img);
+
+                const dot = document.createElement('span');
+                dot.className = 'online-dot';
+                dot.dataset.onlineFor = otherId;
+                dot.style.display = onlineUserIds.has(otherId) ? 'block' : 'none';
+                avatarWrap.appendChild(dot);
             }
+            row.appendChild(avatarWrap);
 
             const info = document.createElement('div');
             info.className = 'wa-conv-info';
@@ -238,10 +286,7 @@
                 rightCol.appendChild(timeEl);
             }
 
-            const unreadCount = conv.lastMessage && conv.lastMessage.seq > (readMapGlobal[conv.id] || 0) ? 1 : 0;
-            // Compte exact non disponible sans requête supplémentaire par conversation (évité par choix de perf) —
-            // un badge "non-lu" binaire est un compromis honnête plutôt qu'un chiffre inventé.
-            if (unreadCount > 0) {
+            if (conv.lastMessage && conv.lastMessage.seq > (readMapGlobal[conv.id] || 0)) {
                 const badge = document.createElement('span');
                 badge.className = 'wa-unread-badge';
                 badge.textContent = '●';
@@ -294,9 +339,11 @@
         }
 
         const isGroup = conv.type === 'group';
+        const dotEl = document.getElementById('chat-header-online-dot');
         if (isGroup) {
             document.getElementById('chat-header-name').textContent = conv.name || 'Groupe';
             document.getElementById('chat-header-avatar').style.display = 'none';
+            dotEl.style.display = 'none';
         } else {
             const otherId = conv.direct_user_a === currentUserId ? conv.direct_user_b : conv.direct_user_a;
             const { data: profile } = await supabaseClient
@@ -306,12 +353,13 @@
             document.getElementById('chat-header-avatar').src = isValidAvatarUrlLocal(profile?.avatar_url)
                 ? profile.avatar_url
                 : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(otherId)}`;
+            dotEl.dataset.onlineFor = otherId;
+            dotEl.style.display = onlineUserIds.has(otherId) ? 'block' : 'none';
         }
 
         manager = new ChatManager(conversationId, currentUserId, isGroup);
         await manager.start();
 
-        // Rafraîchit le badge de la liste une fois la conversation marquée comme lue
         setTimeout(loadConversationList, 1500);
     }
 
@@ -330,7 +378,6 @@
         }
     });
 
-    // Frappe en cours — envoyée au maximum une fois toutes les 2s, pas à chaque touche
     let lastTypingSent = 0;
     document.getElementById('chat-input').addEventListener('input', () => {
         const now = Date.now();

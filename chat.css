@@ -253,6 +253,14 @@
     line-height: 1;
 }
 
+.wa-conv-avatar-wrap { position: relative; flex-shrink: 0; }
+.chat-header-avatar-wrap { position: relative; flex-shrink: 0; }
+.online-dot {
+    position: absolute; bottom: 0; right: 0;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); border: 2px solid var(--bg-surface);
+}
+
 /* ==========================================
    RESPONSIVE — mobile : un seul panneau visible à la fois
    ========================================== */

@@ -160,7 +160,10 @@
                                 <span class="user-details">${details}</span>
                             </div>
                         </div>
-                        <button type="button" class="friend-btn btn-ghost" aria-label="Ajouter ${prenom}"></button>
+                        <div class="friend-actions">
+                            <button type="button" class="friend-btn btn-ghost" aria-label="Ajouter ${prenom}"></button>
+                            <button type="button" class="friend-btn-reject btn-ghost" style="display:none;" aria-label="Ignorer la demande de ${prenom}">Ignorer</button>
+                        </div>
                     </article>
                 `;
             }).join('');
@@ -175,21 +178,25 @@
             const card = document.querySelector(`[data-user-id="${targetId}"]`);
             if (!card) return;
             const btn = card.querySelector('.friend-btn');
+            const rejectBtn = card.querySelector('.friend-btn-reject');
             const labels = {
                 none: { text: 'Ajouter', disabled: false },
                 loading: { text: '...', disabled: true },
                 pending_sent: { text: 'Demande envoyée', disabled: true },
-                pending_received: { text: 'Répondre', disabled: false },
+                pending_received: { text: 'Accepter', disabled: false },
                 accepted: { text: 'Ami', disabled: true },
                 blocked: { text: 'Indisponible', disabled: true },
             };
-            const cfg = labels[friendshipState.get(targetId) || 'none'];
+            const state = friendshipState.get(targetId) || 'none';
+            const cfg = labels[state];
             btn.textContent = cfg.text;
             btn.disabled = cfg.disabled;
+            rejectBtn.style.display = state === 'pending_received' ? 'inline-block' : 'none';
         }
 
         async function sendFriendRequest(targetId) {
             const current = friendshipState.get(targetId) || 'none';
+            if (current === 'pending_received') { await acceptFriendRequest(targetId); return; }
             if (current !== 'none') return;
 
             friendshipState.set(targetId, 'loading');
@@ -227,6 +234,50 @@
             showToast('Erreur réseau, réessaie.');
         }
 
+        async function acceptFriendRequest(targetId) {
+            friendshipState.set(targetId, 'loading');
+            renderFriendButton(targetId);
+
+            const { error } = await supabaseClient
+                .from('friendships')
+                .update({ status: 'accepted' })
+                .eq('sender_id', targetId)
+                .eq('receiver_id', currentUserId)
+                .eq('status', 'pending');
+
+            if (error) {
+                console.error('Échec acceptation demande:', error);
+                friendshipState.set(targetId, 'pending_received');
+                renderFriendButton(targetId);
+                showToast('Erreur, réessaie.');
+                return;
+            }
+            friendshipState.set(targetId, 'accepted');
+            renderFriendButton(targetId);
+        }
+
+        async function rejectFriendRequest(targetId) {
+            friendshipState.set(targetId, 'loading');
+            renderFriendButton(targetId);
+
+            const { error } = await supabaseClient
+                .from('friendships')
+                .update({ status: 'blocked' })
+                .eq('sender_id', targetId)
+                .eq('receiver_id', currentUserId)
+                .eq('status', 'pending');
+
+            if (error) {
+                console.error('Échec refus demande:', error);
+                friendshipState.set(targetId, 'pending_received');
+                renderFriendButton(targetId);
+                showToast('Erreur, réessaie.');
+                return;
+            }
+            friendshipState.set(targetId, 'blocked');
+            renderFriendButton(targetId);
+        }
+
         async function reconcileFriendshipState(targetId) {
             const { data } = await supabaseClient
                 .from('friendships')
@@ -242,10 +293,10 @@
         }
 
         document.getElementById('radar-feed').addEventListener('click', (e) => {
-            const btn = e.target.closest('.friend-btn');
-            if (!btn) return;
-            const card = btn.closest('[data-user-id]');
-            if (card) sendFriendRequest(card.dataset.userId);
+            const card = e.target.closest('[data-user-id]');
+            if (!card) return;
+            if (e.target.closest('.friend-btn-reject')) { rejectFriendRequest(card.dataset.userId); return; }
+            if (e.target.closest('.friend-btn')) { sendFriendRequest(card.dataset.userId); return; }
         });
 
         document.getElementById('signout-btn').addEventListener('click', async () => {

@@ -1,9 +1,8 @@
 // ==========================================
 // chat.js — Go-school ChatManager
-// Invariants I1-I10 inchangés. Ajouts de ce tour :
-// - accusés Envoyé / Distribué / Lu (1-à-1 uniquement)
-// - watchdog anti-blocage sur l'envoi (15s)
-// - frappe en cours (déjà présent)
+// Invariants I1-I10 inchangés.
+// Accusés Envoyé / Distribué / Lu, watchdog anti-blocage (15s),
+// frappe en cours, sons (sent/received/failed/message_read).
 // ==========================================
 
 const OUTBOX_KEY = 'goschool_outbox_v1';
@@ -39,11 +38,40 @@ function showTypingIndicator() {
   typingHideTimeout = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
+// ---------- SONS (une seule définition, noms alignés sur /sounds/*.wav) ----------
+const soundCache = {};
+function playSound(name) {
+  try {
+    if (!soundCache[name]) soundCache[name] = new Audio(`sounds/${name}.wav`);
+    soundCache[name].currentTime = 0;
+    // Les navigateurs bloquent l'autoplay avant toute interaction utilisateur —
+    // échec silencieux attendu, jamais bloquant pour le chat lui-même.
+    soundCache[name].play().catch(() => {});
+  } catch (e) { /* non critique */ }
+}
+
 function withTimeout(promise, ms) {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), ms))
   ]);
+}
+
+// ---------- SONS ----------
+// Échec silencieux si l'autoplay est bloqué par le navigateur — jamais d'erreur affichée à l'utilisateur.
+const SOUNDS = {
+  sent: 'sounds/sent.wav',
+  received: 'sounds/received.wav',
+  failed: 'sounds/failed.wav',
+  message_read: 'sounds/message_read.wav',
+  friend_online: 'sounds/friend_online.wav'
+};
+function playSound(name) {
+  const src = SOUNDS[name];
+  if (!src) return;
+  try {
+    new Audio(src).play().catch(() => {});
+  } catch (e) { /* ignore */ }
 }
 
 class ChatManager {
@@ -60,9 +88,9 @@ class ChatManager {
     this.lastKnownSeq = 0;
     this.stopped = false;
 
-    // Accusés de réception (1-à-1 uniquement) — état du membre en face
     this.otherReadSeq = 0;
     this.otherDeliveredSeq = 0;
+    this.readSoundPlayedFor = new Set();
 
     this._onVisibilityChange = () => { if (document.visibilityState === 'visible') this.markAsRead(); };
     document.addEventListener('visibilitychange', this._onVisibilityChange);
@@ -112,15 +140,16 @@ class ChatManager {
       this.handleRealtimeInsert(payload.new);
     });
 
-    // Accusés de réception en direct — mise à jour de la ligne conversation_members de l'AUTRE membre
     if (!this.isGroup) {
       channel.on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'conversation_members',
         filter: `conversation_id=eq.${this.conversationId}`
       }, (payload) => {
         if (myGen !== this.generation) return;
-        if (payload.new.user_id === this.currentUserId) return; // ignore ses propres mises à jour
-        this.otherReadSeq = payload.new.last_read_seq || 0;
+        if (payload.new.user_id === this.currentUserId) return;
+        const newReadSeq = payload.new.last_read_seq || 0;
+        if (newReadSeq > this.otherReadSeq) playSound('message_read'); // transition réelle uniquement
+        this.otherReadSeq = newReadSeq;
         this.otherDeliveredSeq = payload.new.last_delivered_seq || 0;
         this.refreshOwnMessageReceipts();
       });
@@ -167,6 +196,8 @@ class ChatManager {
 
     if (myGen !== this.generation) return;
 
+    // NB : ce fetch est une synchronisation historique — aucun son ne doit se jouer ici,
+    // "received" ne se déclenche que pour les arrivées EN DIRECT (handleRealtimeInsert).
     if (!error && data) {
       data.forEach(msg => {
         this.renderMessage(msg, 'confirmed');
@@ -176,7 +207,6 @@ class ChatManager {
       console.error('Erreur synchronisation REST:', error);
     }
 
-    // État initial des accusés de l'autre membre (1-à-1 uniquement)
     if (!this.isGroup) {
       const { data: otherMember } = await supabaseClient
         .from('conversation_members')
@@ -200,6 +230,7 @@ class ChatManager {
 
   handleRealtimeInsert(row) {
     this.renderMessage(row, 'confirmed');
+    if (row.sender_id !== this.currentUserId) playSound('received'); // un seul appel, ici seulement
     if (row.seq && row.seq > this.lastKnownSeq) this.lastKnownSeq = row.seq;
     if (this.state === 'READY') {
       this.markAsDelivered();
@@ -220,7 +251,6 @@ class ChatManager {
   }
 
   async markAsRead() {
-    // "Lu" exige explicitement l'onglet au premier plan — sinon ce n'est que "Distribué"
     if (this.lastKnownSeq <= 0 || document.visibilityState !== 'visible') return;
     await supabaseClient
       .from('conversation_members')
@@ -233,12 +263,18 @@ class ChatManager {
   refreshOwnMessageReceipts() {
     document.querySelectorAll('#chat-messages .chat-message-row.mine').forEach(row => {
       const seq = Number(row.dataset.seq || 0);
-      if (!seq) return; // message encore local (pending/sending), pas de accusé à afficher
+      if (!seq) return;
       const statusEl = row.querySelector('.chat-message-status');
       if (!statusEl) return;
-      if (this.otherReadSeq >= seq) statusEl.textContent = 'Lu ✓✓';
-      else if (this.otherDeliveredSeq >= seq) statusEl.textContent = 'Distribué ✓';
-      // sinon : laisse "Envoyé" (vide) tel quel, pas encore d'accusé de l'autre côté
+      if (this.otherReadSeq >= seq) {
+        statusEl.textContent = 'Lu ✓✓';
+        if (!this.readSoundPlayedFor.has(seq)) {
+          this.readSoundPlayedFor.add(seq);
+          playSound('message_read');
+        }
+      } else if (this.otherDeliveredSeq >= seq) {
+        statusEl.textContent = 'Distribué ✓';
+      }
     });
   }
 
@@ -327,6 +363,7 @@ class ChatManager {
         // le double-check 23505 protège contre un doublon si l'INSERT avait en fait réussi.
         entry.status = 'failed';
         renderMessageStatus(entry.client_message_id, 'failed');
+        playSound('failed');
         continue;
       }
 
@@ -335,6 +372,7 @@ class ChatManager {
       if (!error) {
         entry.status = 'sent';
         renderMessageStatus(entry.client_message_id, 'sent');
+        playSound('sent');
         continue;
       }
 
@@ -351,12 +389,14 @@ class ChatManager {
 
         entry.status = matches ? 'sent' : 'failed';
         renderMessageStatus(entry.client_message_id, entry.status);
+        // Pas de son ici : ce n'est qu'une réconciliation de retry, pas un nouvel envoi.
         continue;
       }
 
       console.error('Rejet sécurité messages:', error);
       entry.status = 'failed';
       renderMessageStatus(entry.client_message_id, 'failed');
+      playSound('failed');
     }
 
     outbox = outbox.filter(e => e.status !== 'sent');

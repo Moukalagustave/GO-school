@@ -103,14 +103,27 @@
     let presenceChannel = null;
     const onlineUserIds = new Set();
 
+    let presenceInitialized = false;
+
     function initPresence() {
         presenceChannel = supabaseClient.channel('presence:online', {
             config: { presence: { key: currentUserId } }
         });
         presenceChannel.on('presence', { event: 'sync' }, () => {
             const state = presenceChannel.presenceState();
+            const newIds = new Set(Object.keys(state));
+            // Le premier sync ne fait que refléter qui est déjà en ligne au chargement —
+            // ce n'est pas une "arrivée", donc pas de son à ce moment-là.
+            if (presenceInitialized) {
+                newIds.forEach(id => {
+                    if (!onlineUserIds.has(id) && id !== currentUserId && profilesMapGlobal[id]) {
+                        playSound('friend_online');
+                    }
+                });
+            }
+            presenceInitialized = true;
             onlineUserIds.clear();
-            Object.keys(state).forEach(id => onlineUserIds.add(id));
+            newIds.forEach(id => onlineUserIds.add(id));
             updateOnlineDots();
         });
         presenceChannel.subscribe(async (status) => {

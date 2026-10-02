@@ -2,51 +2,67 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Go-school — Radar</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
     <style>
-        .app-container { max-width: 420px; margin: 0 auto; padding: 20px 16px; }
-        .app-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
-        .user-profile-header { display: flex; align-items: center; gap: 12px; }
-        .user-meta { display: flex; flex-direction: column; }
-        .user-email-text { font-size: 13px; font-weight: 600; color: var(--text-primary); }
-        .btn-danger { padding: 6px 12px; background-color: rgba(248, 81, 73, 0.1); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
-        .btn-danger:hover { background-color: rgba(248, 81, 73, 0.2); }
-        .section-title { font-size: 16px; font-weight: 600; color: var(--text-secondary); margin-bottom: 16px; }
+        .app-container { max-width: 520px; margin: 0 auto; padding: 16px 16px 40px; }
+        .app-header { display: flex; justify-content: space-between; align-items: center; padding: 4px 0 16px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+        .user-profile-header { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .user-profile-header a { display: block; line-height: 0; }
+        .brand { display: block; font-size: 18px; font-weight: 700; color: var(--accent); }
+        .user-email-text { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; display: block; }
+        .btn-danger { padding: 6px 12px; background: rgba(248,81,73,.1); color: #f85149; border: 1px solid rgba(248,81,73,.4); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+        .btn-danger:hover { background: rgba(248,81,73,.2); }
+        .hero { margin-bottom: 16px; }
+        .hero h1 { margin: 0 0 4px; font-size: 24px; color: var(--text-primary); }
+        .hero p { margin: 0; font-size: 13px; color: var(--text-secondary); }
+        .search-box { width: 100%; margin: 14px 0 16px; padding: 12px 16px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 24px; color: var(--text-primary); font-size: 16px; font-family: inherit; }
+        .search-box:focus { outline: none; border-color: var(--accent); }
         #radar-feed { display: flex; flex-direction: column; gap: 12px; }
-        .empty-feed { color: var(--text-secondary); font-size: 14px; text-align: center; padding: 20px 0; }
-        .btn-ghost:disabled { opacity: 0.5; cursor: default; }
-        #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; }
+        .empty-feed { color: var(--text-secondary); font-size: 14px; text-align: center; padding: 28px 0; }
+        .radar-card { width: 100%; min-height: 0; padding: 14px 16px; gap: 12px; border-radius: 14px; transition: border-color .2s, transform .2s; }
+        .radar-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .radar-card .avatar { width: 56px; height: 56px; }
+        .username { font-size: 16px; }
+        .user-details { font-size: 13px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .chip { font-size: 11px; padding: 2px 8px; border-radius: 10px; color: var(--accent); background: rgba(88,230,168,.1); border: 1px solid rgba(88,230,168,.25); }
+        .friend-btn { width: auto; min-width: 104px; padding: 0 14px; height: 36px; }
+        .friend-btn.primary { background: var(--accent); color: #0d1117; }
+        .friend-btn.primary:hover { background: var(--accent-hover); }
+        .friend-btn:disabled { opacity: .55; cursor: default; }
+        .friend-btn-reject { width: auto; min-width: 104px; }
+        #toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); padding: 10px 16px; border-radius: 8px; font-size: 13px; display: none; max-width: 90%; z-index: 50; }
+        @media (max-width: 380px) { .radar-card .avatar { width: 46px; height: 46px; } .friend-btn, .friend-btn-reject { min-width: 88px; } }
     </style>
 </head>
 <body>
-
     <div class="app-container">
         <header class="app-header">
             <div class="user-profile-header">
-                <img id="user-avatar" src="" alt="Mon avatar" class="avatar">
-                <div class="user-meta">
-                    <span id="user-email" class="user-email-text">Chargement...</span>
+                <a href="profil.html" aria-label="Mon profil"><img id="user-avatar" src="" alt="Mon avatar" class="avatar"></a>
+                <div>
+                    <span class="brand">Go-school</span>
+                    <span id="user-email" class="user-email-text"></span>
                 </div>
             </div>
             <div class="header-actions">
-                <!-- Emplacement des futures icônes (publications, etc.) : les ajouter ici, même structure -->
                 <a href="chat.html" class="header-icon-btn" aria-label="Messages" title="Messages">💬</a>
                 <button type="button" class="btn-danger" id="signout-btn">Déconnexion</button>
             </div>
         </header>
 
         <main>
-            <h2 class="section-title">Radar des élèves</h2>
-            <div id="radar-feed">
-                <p class="empty-feed" id="feed-status">Recherche des élèves...</p>
-            </div>
+            <section class="hero">
+                <h1>Radar</h1>
+                <p id="hero-count">Découvre les élèves et crée ton cercle.</p>
+            </section>
+            <input type="search" id="search" class="search-box" placeholder="Rechercher un prénom, une classe, un quartier" autocomplete="off">
+            <div id="radar-feed"><p class="empty-feed">Recherche des élèves...</p></div>
         </main>
     </div>
-
     <div id="toast"></div>
 
     <script>
@@ -55,13 +71,7 @@
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let currentUserId = null;
-        const friendshipState = new Map(); // targetId -> 'none'|'loading'|'pending_sent'|'pending_received'|'accepted'|'blocked'
-
-        function escapeHTML(str) {
-            return String(str ?? '').replace(/[&<>"']/g, c => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            }[c]));
-        }
+        const friendshipState = new Map(); // targetId -> none|loading|pending_sent|pending_received|accepted|blocked
 
         function isValidAvatar(url) {
             try {
@@ -72,51 +82,50 @@
                     && u.pathname.startsWith('/storage/v1/object/public/avatars/');
             } catch (e) { return false; }
         }
+        const avatarFor = (u) => isValidAvatar(u.avatar_url) ? u.avatar_url
+            : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(u.id)}`;
 
         function showToast(msg) {
             const t = document.getElementById('toast');
             t.textContent = msg;
             t.style.display = 'block';
             clearTimeout(showToast._t);
-            showToast._t = setTimeout(() => { t.style.display = 'none'; }, 3000);
+            showToast._t = setTimeout(() => { t.style.display = 'none'; }, 4000);
         }
 
-        // ==========================================
-        // GARDE DE SESSION
-        // ==========================================
+        function setFeedMessage(text, isError) {
+            const feed = document.getElementById('radar-feed');
+            feed.replaceChildren();
+            const p = document.createElement('p');
+            p.className = 'empty-feed';
+            if (isError) p.style.color = '#f85149';
+            p.textContent = text;
+            feed.appendChild(p);
+        }
+
         (async () => {
             const { data: { session } } = await supabaseClient.auth.getSession();
             if (!session) { window.location.href = 'index.html'; return; }
-
             currentUserId = session.user.id;
             document.getElementById('user-email').textContent = session.user.email;
 
-            const { data: profile } = await supabaseClient
-                .from('profiles')
-                .select('avatar_url')
-                .eq('id', currentUserId)
-                .single();
-
-            const myAvatar = isValidAvatar(profile?.avatar_url)
-                ? profile.avatar_url
-                : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(currentUserId)}`;
-            document.getElementById('user-avatar').src = myAvatar;
+            const { data: profile } = await supabaseClient.from('profiles').select('avatar_url').eq('id', currentUserId).maybeSingle();
+            document.getElementById('user-avatar').src = avatarFor({ id: currentUserId, avatar_url: profile?.avatar_url });
 
             await loadFriendships();
             await loadRadarFeed();
         })();
 
-        // ==========================================
-        // CHARGEMENT GROUPÉ DES AMITIÉS (une seule requête)
-        // ==========================================
         async function loadFriendships() {
             const { data, error } = await supabaseClient
                 .from('friendships')
                 .select('sender_id, receiver_id, status')
                 .or(`sender_id.eq.${currentUserId},receiver_id.eq.${currentUserId}`);
-
-            if (error) { console.error('Erreur chargement amitiés:', error); return; }
-
+            if (error) {
+                console.error('Erreur chargement amitiés:', error);
+                showToast(`Amitiés illisibles (code ${error.code || '?'}).`);
+                return;
+            }
             (data || []).forEach(row => {
                 const otherId = row.sender_id === currentUserId ? row.receiver_id : row.sender_id;
                 if (row.status === 'accepted') friendshipState.set(otherId, 'accepted');
@@ -125,184 +134,157 @@
             });
         }
 
-        // ==========================================
-        // RENDU DES CARTES — colonnes réelles du schéma uniquement
-        // ==========================================
-        async function loadRadarFeed() {
-            const feedContainer = document.getElementById('radar-feed');
+        function buildCard(user) {
+            const prenom = user.prenom || 'Élève';
+            const classe = user.classe || 'Classe non renseignée';
+            const card = document.createElement('article');
+            card.className = 'radar-card';
+            card.dataset.userId = user.id;
+            card.dataset.search = `${prenom} ${classe} ${user.quartier || ''}`.toLowerCase();
 
-            const { data: profiles, error } = await supabaseClient
-                .from('profiles')
-                .select('id, prenom, classe, quartier, avatar_url');
+            const left = document.createElement('div');
+            left.className = 'user-left';
+            const img = document.createElement('img');
+            img.className = 'avatar';
+            img.alt = `Avatar de ${prenom}`;
+            img.src = avatarFor(user);
+            left.appendChild(img);
 
-            if (error) {
-                console.error('Erreur Supabase :', error);
-                feedContainer.innerHTML = '<p class="empty-feed" style="color:#f85149;">Impossible de charger le radar.</p>';
-                return;
+            const info = document.createElement('div');
+            info.className = 'user-info';
+            const h3 = document.createElement('h3');
+            h3.className = 'username';
+            h3.textContent = prenom;
+            const det = document.createElement('span');
+            det.className = 'user-details';
+            det.textContent = user.quartier ? `${classe} — ${user.quartier}` : classe;
+            info.append(h3, det);
+
+            const forts = Array.isArray(user.matieres_fortes) ? user.matieres_fortes.slice(0, 3) : [];
+            if (forts.length) {
+                const chips = document.createElement('div');
+                chips.className = 'chips';
+                forts.forEach(m => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = m; chips.appendChild(c); });
+                info.appendChild(chips);
             }
+            left.appendChild(info);
 
-            const otherUsers = (profiles || []).filter(p => p.id !== currentUserId);
+            const actions = document.createElement('div');
+            actions.className = 'friend-actions';
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'friend-btn btn-ghost';
+            const rej = document.createElement('button');
+            rej.type = 'button';
+            rej.className = 'friend-btn-reject btn-ghost';
+            rej.style.display = 'none';
+            rej.textContent = 'Ignorer';
+            actions.append(btn, rej);
 
-            if (otherUsers.length === 0) {
-                feedContainer.innerHTML = '<p class="empty-feed">Aucun autre élève trouvé sur le radar.</p>';
-                return;
-            }
-
-            feedContainer.innerHTML = otherUsers.map(user => {
-                const prenom = escapeHTML(user.prenom || 'Élève');
-                const classe = escapeHTML(user.classe || 'Classe non renseignée');
-                const quartier = escapeHTML(user.quartier || '');
-                const avatar = isValidAvatar(user.avatar_url)
-                    ? user.avatar_url
-                    : `https://api.dicebear.com/9.x/bottts/svg?seed=${encodeURIComponent(user.id)}`;
-                const details = quartier ? `${classe} — ${quartier}` : classe;
-
-                return `
-                    <article class="radar-card" data-user-id="${escapeHTML(user.id)}">
-                        <div class="user-left">
-                            <img src="${escapeHTML(avatar)}" alt="Avatar de ${prenom}" class="avatar">
-                            <div class="user-info">
-                                <h3 class="username">${prenom}</h3>
-                                <span class="user-details">${details}</span>
-                            </div>
-                        </div>
-                        <div class="friend-actions">
-                            <button type="button" class="friend-btn btn-ghost" aria-label="Ajouter ${prenom}"></button>
-                            <button type="button" class="friend-btn-reject btn-ghost" style="display:none;" aria-label="Ignorer la demande de ${prenom}">Ignorer</button>
-                        </div>
-                    </article>
-                `;
-            }).join('');
-
-            otherUsers.forEach(user => renderFriendButton(user.id));
+            card.append(left, actions);
+            return card;
         }
 
-        // ==========================================
-        // ÉTAT + ACTION D'AMITIÉ
-        // ==========================================
+        async function loadRadarFeed() {
+            let res = await supabaseClient.from('profiles').select('id, prenom, classe, quartier, avatar_url, matieres_fortes');
+            if (res.error) res = await supabaseClient.from('profiles').select('id, prenom, classe, quartier, avatar_url');
+            if (res.error) {
+                console.error('Erreur Supabase :', res.error);
+                setFeedMessage('Impossible de charger le radar.', true);
+                return;
+            }
+            const others = (res.data || []).filter(p => p.id !== currentUserId);
+            document.getElementById('hero-count').textContent =
+                others.length ? `${others.length} élève${others.length > 1 ? 's' : ''} sur le radar` : 'Découvre les élèves et crée ton cercle.';
+            if (!others.length) { setFeedMessage('Aucun autre élève trouvé sur le radar.'); return; }
+
+            const feed = document.getElementById('radar-feed');
+            feed.replaceChildren();
+            others.forEach(u => feed.appendChild(buildCard(u)));
+            others.forEach(u => renderFriendButton(u.id));
+        }
+
+        document.getElementById('search').addEventListener('input', (e) => {
+            const q = e.target.value.trim().toLowerCase();
+            document.querySelectorAll('.radar-card').forEach(c => { c.style.display = c.dataset.search.includes(q) ? '' : 'none'; });
+        });
+
         function renderFriendButton(targetId) {
-            const card = document.querySelector(`[data-user-id="${targetId}"]`);
+            const card = document.querySelector(`[data-user-id="${CSS.escape(targetId)}"]`);
             if (!card) return;
             const btn = card.querySelector('.friend-btn');
-            const rejectBtn = card.querySelector('.friend-btn-reject');
+            const rej = card.querySelector('.friend-btn-reject');
             const labels = {
-                none: { text: 'Ajouter', disabled: false },
-                loading: { text: '...', disabled: true },
-                pending_sent: { text: 'Demande envoyée', disabled: true },
-                pending_received: { text: 'Accepter', disabled: false },
-                accepted: { text: 'Ami', disabled: true },
-                blocked: { text: 'Indisponible', disabled: true },
+                none: ['Ajouter', false, true], loading: ['...', true, false],
+                pending_sent: ['Demande envoyée', true, false], pending_received: ['Accepter', false, true],
+                accepted: ['Écrire', false, true], blocked: ['Indisponible', true, false]
             };
             const state = friendshipState.get(targetId) || 'none';
-            const cfg = labels[state];
-            btn.textContent = cfg.text;
-            btn.disabled = cfg.disabled;
-            rejectBtn.style.display = state === 'pending_received' ? 'inline-block' : 'none';
+            const [text, disabled, primary] = labels[state];
+            btn.textContent = text;
+            btn.disabled = disabled;
+            btn.classList.toggle('primary', primary);
+            rej.style.display = state === 'pending_received' ? 'inline-block' : 'none';
         }
+
+        function setState(id, s) { friendshipState.set(id, s); renderFriendButton(id); }
 
         async function sendFriendRequest(targetId) {
             const current = friendshipState.get(targetId) || 'none';
+            if (current === 'accepted') { window.location.href = `chat.html?with=${encodeURIComponent(targetId)}`; return; }
             if (current === 'pending_received') { await acceptFriendRequest(targetId); return; }
             if (current !== 'none') return;
 
-            friendshipState.set(targetId, 'loading');
-            renderFriendButton(targetId);
+            setState(targetId, 'loading');
+            const { error } = await supabaseClient.from('friendships').insert({ sender_id: currentUserId, receiver_id: targetId });
+            if (!error) { setState(targetId, 'pending_sent'); return; }
 
-            const { error } = await supabaseClient
-                .from('friendships')
-                .insert({ sender_id: currentUserId, receiver_id: targetId });
-
-            if (!error) {
-                friendshipState.set(targetId, 'pending_sent');
-                renderFriendButton(targetId);
-                return;
-            }
-
+            console.error('Échec demande d\u2019ami:', error);
             if (error.code === '23505') { await reconcileFriendshipState(targetId); return; }
-
-            if (error.code === '23503') {
-                friendshipState.set(targetId, 'none');
-                renderFriendButton(targetId);
-                showToast("Ce profil n'existe plus.");
-                return;
-            }
-
-            if (error.code === '42501' || error.code === '23514') {
-                console.error('Rejet sécurité friendships:', error);
-                friendshipState.set(targetId, 'none');
-                renderFriendButton(targetId);
-                showToast('Action non autorisée.');
-                return;
-            }
-
-            friendshipState.set(targetId, 'none');
-            renderFriendButton(targetId);
-            showToast('Erreur réseau, réessaie.');
+            setState(targetId, 'none');
+            if (error.code === '23503') showToast("Ce profil n'existe plus.");
+            else if (error.code === '42501' || error.code === '23514') showToast(`Action non autorisée (code ${error.code}).`);
+            else showToast(`Erreur (code ${error.code || '?'}), réessaie.`);
         }
 
-        async function acceptFriendRequest(targetId) {
-            friendshipState.set(targetId, 'loading');
-            renderFriendButton(targetId);
-
-            const { error } = await supabaseClient
-                .from('friendships')
-                .update({ status: 'accepted' })
-                .eq('sender_id', targetId)
-                .eq('receiver_id', currentUserId)
-                .eq('status', 'pending');
-
-            if (error) {
-                console.error('Échec acceptation demande:', error);
-                friendshipState.set(targetId, 'pending_received');
-                renderFriendButton(targetId);
-                showToast('Erreur, réessaie.');
+        async function updateIncoming(targetId, newStatus) {
+            setState(targetId, 'loading');
+            const { data, error } = await supabaseClient.from('friendships')
+                .update({ status: newStatus })
+                .eq('sender_id', targetId).eq('receiver_id', currentUserId).eq('status', 'pending')
+                .select('status');
+            if (error || !data || data.length === 0) {
+                console.error('Échec mise à jour demande:', error || 'aucune ligne modifiée (RLS ?)');
+                setState(targetId, 'pending_received');
+                showToast(error ? `Erreur (code ${error.code || '?'}).` : 'Action refusée par la base (droits).');
                 return;
             }
-            friendshipState.set(targetId, 'accepted');
-            renderFriendButton(targetId);
+            setState(targetId, newStatus === 'accepted' ? 'accepted' : 'blocked');
         }
-
-        async function rejectFriendRequest(targetId) {
-            friendshipState.set(targetId, 'loading');
-            renderFriendButton(targetId);
-
-            const { error } = await supabaseClient
-                .from('friendships')
-                .update({ status: 'blocked' })
-                .eq('sender_id', targetId)
-                .eq('receiver_id', currentUserId)
-                .eq('status', 'pending');
-
-            if (error) {
-                console.error('Échec refus demande:', error);
-                friendshipState.set(targetId, 'pending_received');
-                renderFriendButton(targetId);
-                showToast('Erreur, réessaie.');
-                return;
-            }
-            friendshipState.set(targetId, 'blocked');
-            renderFriendButton(targetId);
-        }
+        const acceptFriendRequest = (id) => updateIncoming(id, 'accepted');
+        const rejectFriendRequest = (id) => updateIncoming(id, 'blocked');
 
         async function reconcileFriendshipState(targetId) {
-            const { data } = await supabaseClient
-                .from('friendships')
+            const { data, error } = await supabaseClient.from('friendships')
                 .select('sender_id, status')
                 .or(`and(sender_id.eq.${currentUserId},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUserId})`)
                 .maybeSingle();
-
-            if (!data) { friendshipState.set(targetId, 'none'); renderFriendButton(targetId); return; }
-            if (data.status === 'accepted') friendshipState.set(targetId, 'accepted');
-            else if (data.status === 'blocked') friendshipState.set(targetId, 'blocked');
-            else friendshipState.set(targetId, data.sender_id === currentUserId ? 'pending_sent' : 'pending_received');
-            renderFriendButton(targetId);
+            if (error) console.error('Réconciliation amitié:', error);
+            if (!data) {
+                setState(targetId, 'none');
+                showToast('Relation existante mais illisible (droits de lecture sur friendships).');
+                return;
+            }
+            if (data.status === 'accepted') setState(targetId, 'accepted');
+            else if (data.status === 'blocked') setState(targetId, 'blocked');
+            else setState(targetId, data.sender_id === currentUserId ? 'pending_sent' : 'pending_received');
         }
 
         document.getElementById('radar-feed').addEventListener('click', (e) => {
             const card = e.target.closest('[data-user-id]');
             if (!card) return;
             if (e.target.closest('.friend-btn-reject')) { rejectFriendRequest(card.dataset.userId); return; }
-            if (e.target.closest('.friend-btn')) { sendFriendRequest(card.dataset.userId); return; }
+            if (e.target.closest('.friend-btn')) { sendFriendRequest(card.dataset.userId); }
         });
 
         document.getElementById('signout-btn').addEventListener('click', async () => {

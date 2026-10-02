@@ -16,8 +16,11 @@
 }
 
 body {
+  margin: 0;
   font-family: var(--font-family);
   background: var(--bg-base);
+  color: var(--text-primary);
+  -webkit-text-size-adjust: 100%;
 }
 
 .radar-card {
@@ -163,3 +166,20 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ===== ÉCRAN DE CONNEXION (index.html) ===== */
+.auth-wrapper { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 20px 16px; }
+.auth-card { width: 100%; max-width: 380px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px 24px; display: flex; flex-direction: column; gap: 14px; }
+.auth-card h2 { margin: 0 0 4px; font-size: 22px; text-align: center; color: var(--text-primary); }
+.auth-card label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
+.auth-card input { width: 100%; padding: 12px 14px; margin-bottom: 12px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); font-size: 16px; font-family: inherit; }
+.auth-card input:focus { outline: none; border-color: var(--accent); }
+.social-btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 12px; background: var(--bg-base); border: 1px solid var(--border); border-radius: 10px; color: var(--text-primary); font-size: 14px; font-weight: 600; cursor: pointer; }
+.social-btn:hover { border-color: var(--accent); }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--text-secondary); font-size: 12px; }
+.divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.primary-btn { width: 100%; padding: 12px; border: none; border-radius: 10px; background: var(--accent); color: #0d1117; font-size: 14px; font-weight: 700; cursor: pointer; }
+.primary-btn:hover { background: var(--accent-hover); }
+.toggle-mode { text-align: center; font-size: 13px; color: var(--text-secondary); }
+.toggle-mode a { color: var(--accent); cursor: pointer; font-weight: 600; }
+#message { margin: 0; min-height: 16px; text-align: center; font-size: 13px; color: #f85149; }

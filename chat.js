@@ -546,7 +546,7 @@ class ChatManager {
 
     if (uploadError) {
       console.error('Échec upload média:', uploadError);
-      if (!this.stopped) { removeRow(); showToast("Échec de l'envoi de l'image. Réessaie."); playSound('failed'); }
+      if (!this.stopped) { removeRow(); showToast("Échec de l'envoi : " + (uploadError.message || 'erreur inconnue')); playSound('failed'); }
       return false;
     }
 

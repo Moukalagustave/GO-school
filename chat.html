@@ -30,6 +30,7 @@
                 <img id="my-avatar" class="wa-avatar-sm" src="" alt="">
             </a>
             <span class="wa-list-title">Messages</span>
+            <a href="radar.html" class="header-icon-btn wa-mobile-only" title="Radar" aria-label="Radar des élèves">◎</a>
             <button type="button" class="header-icon-btn" id="toggle-group-panel" title="Nouveau groupe" aria-label="Nouveau groupe">
                 <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             </button>
@@ -174,6 +175,13 @@
         const params = new URLSearchParams(window.location.search);
         const initialId = params.get('c');
         if (initialId) await openConversation(initialId);
+
+        const withId = params.get('with');
+        if (withId) {
+            const cid = await createDirectConversation(withId, currentUserId);
+            if (cid) { await loadConversationList(); await openConversation(cid); }
+            else showToast("Impossible d'ouvrir la conversation.");
+        }
     })();
 
     // ---------- TITRE D'ONGLET DYNAMIQUE ----------

@@ -340,3 +340,15 @@
     color: var(--text-primary); cursor: pointer; flex-shrink: 0;
 }
 .btn-attach:hover { background: var(--bg-base); }
+
+/* ==========================================
+   MOBILE : hauteur réelle, pas de zoom iOS, navigation
+   ========================================== */
+.wa-layout { height: 100vh; height: 100dvh; }
+.wa-mobile-only { display: none; }
+.chat-input-row { padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 768px) {
+    .wa-mobile-only { display: flex; }
+    #chat-input, .wa-search input, .wa-group-panel input[type="text"] { font-size: 16px; }
+    .chat-message { max-width: 85%; }
+}

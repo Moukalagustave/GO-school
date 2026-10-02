@@ -174,30 +174,31 @@
         }
 
         showToast('Envoi de la photo…');
-        const ext = file.name.split('.').pop().toLowerCase();
-        const path = `${currentUserId}/photo.${ext}`;
+        const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' })[file.type];
+        if (!ext) { showToast('Format non pris en charge (JPEG, PNG ou WebP).'); e.target.value = ''; return; }
+        const path = `${currentUserId}/photo-${Date.now()}.${ext}`;
 
         const { error: uploadError } = await supabaseClient.storage
             .from('avatars')
-            .upload(path, file, { upsert: true, contentType: file.type });
+            .upload(path, file, { upsert: false, contentType: file.type });
 
         if (uploadError) {
             console.error('Échec upload avatar:', uploadError);
-            showToast("Échec de l'envoi. Réessaie.");
+            showToast("Échec de l'envoi : " + (uploadError.message || 'erreur inconnue'));
             e.target.value = '';
             return;
         }
 
         const { data: publicUrlData } = supabaseClient.storage.from('avatars').getPublicUrl(path);
         // Casse le cache navigateur si une photo existait déjà au même chemin
-        const bustedUrl = `${publicUrlData.publicUrl}?t=${Date.now()}`;
+        const bustedUrl = publicUrlData.publicUrl;
 
         const { error: updateError } = await supabaseClient
             .from('profiles').update({ avatar_url: bustedUrl }).eq('id', currentUserId);
 
         if (updateError) {
             console.error('Échec mise à jour profil:', updateError);
-            showToast("Photo envoyée mais échec de l'enregistrement. Réessaie.");
+            showToast("Photo envoyée mais non enregistrée : " + (updateError.message || updateError.code));
             e.target.value = '';
             return;
         }

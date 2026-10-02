@@ -71,9 +71,15 @@
                     <span id="connection-status">Déconnecté</span>
                     <span id="typing-indicator" class="typing-indicator" style="display:none;"></span>
                 </div>
+                <button type="button" class="btn-leave-group" id="leave-group-btn" style="display:none;">Quitter</button>
             </header>
 
             <div id="chat-messages" class="chat-messages"></div>
+
+            <div id="reply-preview-bar" class="reply-preview-bar">
+                <span id="reply-preview-text"></span>
+                <button type="button" id="reply-cancel-btn" aria-label="Annuler la réponse">×</button>
+            </div>
 
             <form id="chat-form" class="chat-input-row">
                 <input type="text" id="chat-input" maxlength="2000" placeholder="Écris un message…" autocomplete="off">
@@ -98,6 +104,14 @@
     let allConversations = [];
     let profilesMapGlobal = {};
     let readMapGlobal = {};
+    let currentReplyTarget = null; // client_message_id du message auquel on répond
+
+    window.setReplyTarget = (clientMessageId, previewText) => {
+        currentReplyTarget = clientMessageId;
+        document.getElementById('reply-preview-text').textContent = (previewText || '').slice(0, 80);
+        document.getElementById('reply-preview-bar').classList.add('open');
+        document.getElementById('chat-input').focus();
+    };
 
     // ---------- PRÉSENCE (Supabase Presence — heartbeat/reconnexion gérés en interne) ----------
     let presenceChannel = null;
@@ -353,6 +367,9 @@
 
         const isGroup = conv.type === 'group';
         const dotEl = document.getElementById('chat-header-online-dot');
+        document.getElementById('leave-group-btn').style.display = isGroup ? 'inline-block' : 'none';
+        currentReplyTarget = null;
+        document.getElementById('reply-preview-bar').classList.remove('open');
         if (isGroup) {
             document.getElementById('chat-header-name').textContent = conv.name || 'Groupe';
             document.getElementById('chat-header-avatar').style.display = 'none';
@@ -382,12 +399,34 @@
         history.pushState(null, '', 'chat.html');
     });
 
+    document.getElementById('reply-cancel-btn').addEventListener('click', () => {
+        currentReplyTarget = null;
+        document.getElementById('reply-preview-bar').classList.remove('open');
+    });
+
     document.getElementById('chat-form').addEventListener('submit', (e) => {
         e.preventDefault();
         const input = document.getElementById('chat-input');
         if (manager && input.value.trim()) {
-            manager.sendMessage(input.value);
+            manager.sendMessage(input.value, currentReplyTarget);
             input.value = '';
+            currentReplyTarget = null;
+            document.getElementById('reply-preview-bar').classList.remove('open');
+        }
+    });
+
+    document.getElementById('leave-group-btn').addEventListener('click', async () => {
+        if (!manager || !confirm('Quitter ce groupe ?')) return;
+        const ok = await manager.leaveGroup();
+        if (ok) {
+            manager = null;
+            document.getElementById('wa-layout').classList.remove('chat-active');
+            document.getElementById('wa-active-chat').style.display = 'none';
+            document.getElementById('wa-empty-state').style.display = 'flex';
+            history.pushState(null, '', 'chat.html');
+            await loadConversationList();
+        } else {
+            showToast('Erreur, réessaie.');
         }
     });
 

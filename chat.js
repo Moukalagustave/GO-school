@@ -189,7 +189,7 @@ class ChatManager {
 
     const { data, error } = await supabaseClient
       .from('messages')
-      .select('id, conversation_id, sender_id, client_message_id, content, created_at, seq, reported')
+      .select('id, conversation_id, sender_id, client_message_id, content, created_at, seq, reported, deleted_for_everyone, reply_to_client_message_id')
       .eq('conversation_id', this.conversationId)
       .gt('seq', this.lastKnownSeq)
       .order('seq', { ascending: true });
@@ -310,7 +310,7 @@ class ChatManager {
     }
   }
 
-  async sendMessage(content) {
+  async sendMessage(content, replyToId = null) {
     content = content.trim();
     if (!content || content.length > MAX_CONTENT_LENGTH) return;
 
@@ -326,6 +326,7 @@ class ChatManager {
       conversation_id: this.conversationId,
       sender_id: this.currentUserId,
       content,
+      reply_to_client_message_id: replyToId || null,
       created_at_local: new Date().toISOString(),
       status: 'queued'
     };
@@ -334,6 +335,44 @@ class ChatManager {
 
     this.renderMessage(entry, 'pending');
     await this.flushOutbox();
+  }
+
+  // ---------- ACTIONS MESSAGE ----------
+
+  async deleteForSelf(clientMessageId, messageId) {
+    // messageId = id réel (pas client_message_id) — nécessaire pour la table de masquage
+    const { error } = await supabaseClient
+      .from('message_hidden_for_user')
+      .insert({ message_id: messageId, user_id: this.currentUserId });
+    if (error && error.code !== '23505') { console.error('Échec masquage message:', error); return; }
+    const row = document.querySelector(`[data-client-id="${cssEscape(clientMessageId)}"]`);
+    if (row) row.remove();
+  }
+
+  async deleteForEveryone(clientMessageId) {
+    const { error } = await supabaseClient
+      .from('messages')
+      .update({ deleted_for_everyone: true })
+      .eq('client_message_id', clientMessageId)
+      .eq('sender_id', this.currentUserId);
+    if (error) { console.error('Échec suppression pour tous:', error); showToast('Action non autorisée.'); return; }
+    const row = document.querySelector(`[data-client-id="${cssEscape(clientMessageId)}"]`);
+    if (row) {
+      const content = row.querySelector('.chat-message-content');
+      if (content) content.textContent = 'Message supprimé';
+      row.classList.add('deleted');
+    }
+  }
+
+  async leaveGroup() {
+    const { error } = await supabaseClient
+      .from('conversation_members')
+      .delete()
+      .eq('conversation_id', this.conversationId)
+      .eq('user_id', this.currentUserId);
+    if (error) { console.error('Échec sortie du groupe:', error); showToast('Erreur, réessaie.'); return false; }
+    this.stop();
+    return true;
   }
 
   async flushOutbox() {
@@ -353,7 +392,8 @@ class ChatManager {
             conversation_id: entry.conversation_id,
             sender_id: entry.sender_id,
             client_message_id: entry.client_message_id,
-            content: entry.content
+            content: entry.content,
+            reply_to_client_message_id: entry.reply_to_client_message_id || null
           }),
           SEND_TIMEOUT_MS
         );
@@ -439,10 +479,46 @@ class ChatManager {
         getProfile(msg.sender_id).then(p => { senderEl.textContent = p.prenom || 'Élève'; });
       }
 
+      if (msg.reply_to_client_message_id) {
+        const quoted = document.querySelector(`[data-client-id="${cssEscape(msg.reply_to_client_message_id)}"] .chat-message-content`);
+        const quote = document.createElement('div');
+        quote.className = 'chat-message-quote';
+        quote.textContent = quoted ? quoted.textContent : 'Message';
+        bubble.appendChild(quote);
+      }
+
       const content = document.createElement('span');
       content.className = 'chat-message-content';
-      content.textContent = msg.content;
+      content.textContent = msg.deleted_for_everyone ? 'Message supprimé' : msg.content;
+      if (msg.deleted_for_everyone) bubble.classList.add('deleted');
       bubble.appendChild(content);
+
+      // Menu d'actions — visible au clic sur la bulle, pas de suppression possible sur un message déjà effacé
+      if (!msg.deleted_for_everyone && msg.id) {
+        const actions = document.createElement('div');
+        actions.className = 'chat-message-actions';
+
+        const replyBtn = document.createElement('button');
+        replyBtn.type = 'button';
+        replyBtn.textContent = 'Répondre';
+        replyBtn.addEventListener('click', (e) => { e.stopPropagation(); if (window.setReplyTarget) window.setReplyTarget(id, msg.content); });
+        actions.appendChild(replyBtn);
+
+        if (isMine) {
+          const delAllBtn = document.createElement('button');
+          delAllBtn.type = 'button';
+          delAllBtn.textContent = 'Supprimer pour tous';
+          delAllBtn.addEventListener('click', (e) => { e.stopPropagation(); this.deleteForEveryone(id); });
+          actions.appendChild(delAllBtn);
+        }
+        const delSelfBtn = document.createElement('button');
+        delSelfBtn.type = 'button';
+        delSelfBtn.textContent = 'Supprimer pour moi';
+        delSelfBtn.addEventListener('click', (e) => { e.stopPropagation(); this.deleteForSelf(id, msg.id); });
+        actions.appendChild(delSelfBtn);
+        bubble.appendChild(actions);
+        bubble.addEventListener('click', () => bubble.classList.toggle('actions-open'));
+      }
 
       const meta = document.createElement('div');
       meta.className = 'chat-message-meta';

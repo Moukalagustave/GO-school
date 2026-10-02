@@ -206,6 +206,58 @@
 .chat-message.failed { border-color: #f85149; }
 .chat-message.failed .chat-message-status { color: #f85149; }
 
+.chat-message.deleted .chat-message-content { font-style: italic; color: var(--text-secondary); }
+
+.chat-message-quote {
+    border-left: 2px solid var(--accent);
+    padding: 2px 8px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-height: 32px;
+    overflow: hidden;
+}
+
+.chat-message-actions {
+    display: none;
+    gap: 10px;
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+}
+.chat-message.actions-open .chat-message-actions { display: flex; }
+.chat-message-actions button {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+}
+.chat-message-actions button:hover { text-decoration: underline; }
+
+.reply-preview-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+.reply-preview-bar.open { display: flex; }
+.reply-preview-bar button {
+    background: transparent; border: none; color: var(--text-secondary);
+    font-size: 16px; cursor: pointer; padding: 0 0 0 10px;
+}
+
+.btn-leave-group {
+    background: transparent; border: 1px solid #f85149; color: #f85149;
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; margin-left: auto;
+}
+.btn-leave-group:hover { background: rgba(248,81,73,0.1); }
+
 .chat-input-row {
     display: flex; align-items: center; gap: 10px;
     padding: 10px 16px; border-top: 1px solid var(--border);

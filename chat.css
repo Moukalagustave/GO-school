@@ -325,3 +325,18 @@
     .wa-layout.chat-active .wa-list-panel { display: none; }
     .wa-layout.chat-active .wa-chat-panel { display: flex; width: 100%; }
 }
+
+/* ==========================================
+   IMAGES DANS LE CHAT
+   ========================================== */
+.chat-message-media {
+    display: block; max-width: 100%; max-height: 260px; min-height: 80px;
+    border-radius: 8px; margin-bottom: 4px; cursor: pointer;
+    object-fit: cover; background: #21262d;
+}
+.btn-attach {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-primary); cursor: pointer; flex-shrink: 0;
+}
+.btn-attach:hover { background: var(--bg-base); }

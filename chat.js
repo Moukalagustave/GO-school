@@ -2,22 +2,70 @@
 // chat.js — Go-school ChatManager
 // Invariants I1-I10 inchangés.
 // Accusés Envoyé / Distribué / Lu, watchdog anti-blocage (15s),
-// frappe en cours, sons (sent/received/failed/message_read).
+// frappe en cours, sons (sent/received/failed/message_read/friend_online).
+// Ajouts de cette version :
+//  - pagination (30 messages + scroll infini vers le haut)
+//  - READY uniquement si la synchro REST initiale réussit
+//  - gardes generation/stopped après chaque await
+//  - images via bucket PRIVÉ chat-media (URLs signées)
+//  - Outbox : plus d'écrasement par un snapshot périmé, flush non réentrant
 // ==========================================
 
 const OUTBOX_KEY = 'goschool_outbox_v1';
 const MAX_OUTBOX = 50;
 const MAX_CONTENT_LENGTH = 2000;
 const SEND_TIMEOUT_MS = 15000;
+const UPLOAD_TIMEOUT_MS = 60000;
+const PAGE_SIZE = 30;
+const SCROLL_LOAD_THRESHOLD_PX = 80;
+
+const SUPABASE_HOST = 'afwutxnapjrauouazcui.supabase.co';
+const MEDIA_BUCKET = 'chat-media';
+const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // le vrai plafond doit être posé côté bucket
+const MEDIA_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+const MEDIA_PLACEHOLDER = '📷 Photo';
+const SIGNED_URL_TTL_S = 3600;
+
+const MESSAGE_COLUMNS =
+  'id, conversation_id, sender_id, client_message_id, content, created_at, seq, reported, ' +
+  'deleted_for_everyone, reply_to_client_message_id, media_url, media_type';
 
 const profileCache = new Map();
+const signedUrlCache = new Map();
 let typingHideTimeout = null;
 
+// ---------- VALIDATION D'URL / CHEMINS (filtres d'affichage ; l'autorité reste RLS + Storage) ----------
+
 function isValidAvatarUrl(url) {
-  return typeof url === 'string' && (
-    url.startsWith('https://api.dicebear.com/') ||
-    url.includes('/storage/v1/object/public/avatars/')
-  );
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    if (u.hostname === 'api.dicebear.com') return true;
+    return u.hostname === SUPABASE_HOST && u.pathname.startsWith('/storage/v1/object/public/avatars/');
+  } catch (e) {
+    return false;
+  }
+}
+
+// Chemin attendu dans le bucket privé : {conversation_id}/{client_message_id}.{jpg|png|webp}
+function isValidMediaPath(path, conversationId) {
+  if (typeof path !== 'string') return false;
+  const m = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.(jpg|png|webp)$/i.exec(path);
+  return !!m && m[1].toLowerCase() === String(conversationId).toLowerCase();
+}
+
+async function getSignedMediaUrl(path) {
+  const cached = signedUrlCache.get(path);
+  if (cached && cached.expiresAt > Date.now() + 60000) return cached.url;
+  const { data, error } = await supabaseClient.storage
+    .from(MEDIA_BUCKET)
+    .createSignedUrl(path, SIGNED_URL_TTL_S);
+  if (error || !data || !data.signedUrl) {
+    console.error('Échec URL signée média:', error);
+    return null;
+  }
+  signedUrlCache.set(path, { url: data.signedUrl, expiresAt: Date.now() + SIGNED_URL_TTL_S * 1000 });
+  return data.signedUrl;
 }
 
 async function getProfile(userId) {
@@ -38,18 +86,6 @@ function showTypingIndicator() {
   typingHideTimeout = setTimeout(() => { el.style.display = 'none'; }, 3000);
 }
 
-// ---------- SONS (une seule définition, noms alignés sur /sounds/*.wav) ----------
-const soundCache = {};
-function playSound(name) {
-  try {
-    if (!soundCache[name]) soundCache[name] = new Audio(`sounds/${name}.wav`);
-    soundCache[name].currentTime = 0;
-    // Les navigateurs bloquent l'autoplay avant toute interaction utilisateur —
-    // échec silencieux attendu, jamais bloquant pour le chat lui-même.
-    soundCache[name].play().catch(() => {});
-  } catch (e) { /* non critique */ }
-}
-
 function withTimeout(promise, ms) {
   return Promise.race([
     promise,
@@ -57,8 +93,8 @@ function withTimeout(promise, ms) {
   ]);
 }
 
-// ---------- SONS ----------
-// Échec silencieux si l'autoplay est bloqué par le navigateur — jamais d'erreur affichée à l'utilisateur.
+// ---------- SONS (une seule définition) ----------
+// Échec silencieux si l'autoplay est bloqué par le navigateur — jamais d'erreur affichée.
 const SOUNDS = {
   sent: 'sounds/sent.wav',
   received: 'sounds/received.wav',
@@ -88,6 +124,19 @@ class ChatManager {
     this.lastKnownSeq = 0;
     this.stopped = false;
 
+    // Pagination
+    this.oldestLoadedSeq = null;
+    this.hasMoreOlder = false;
+    this.loadingOlder = false;
+    this._onScroll = null;
+    this._scrollEl = null;
+
+    // Outbox
+    this.flushing = false;
+    this.flushQueued = false;
+
+    this.blobUrls = [];
+
     this.otherReadSeq = 0;
     this.otherDeliveredSeq = 0;
     this.readSoundPlayedFor = new Set();
@@ -111,6 +160,9 @@ class ChatManager {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     document.removeEventListener('visibilitychange', this._onVisibilityChange);
+    this._detachScrollListener();
+    this.blobUrls.forEach(u => URL.revokeObjectURL(u));
+    this.blobUrls = [];
     if (this.channel) {
       supabaseClient.removeChannel(this.channel);
       this.channel = null;
@@ -126,6 +178,7 @@ class ChatManager {
     if (this.channel) {
       await supabaseClient.removeChannel(this.channel);
       this.channel = null;
+      if (myGen !== this.generation || this.stopped) return;
     }
 
     this.setState('CONNECTING');
@@ -136,7 +189,7 @@ class ChatManager {
       event: 'INSERT', schema: 'public', table: 'messages',
       filter: `conversation_id=eq.${this.conversationId}`
     }, (payload) => {
-      if (myGen !== this.generation) return;
+      if (myGen !== this.generation || this.stopped) return;
       this.handleRealtimeInsert(payload.new);
     });
 
@@ -145,7 +198,7 @@ class ChatManager {
         event: 'UPDATE', schema: 'public', table: 'conversation_members',
         filter: `conversation_id=eq.${this.conversationId}`
       }, (payload) => {
-        if (myGen !== this.generation) return;
+        if (myGen !== this.generation || this.stopped) return;
         if (payload.new.user_id === this.currentUserId) return;
         const newReadSeq = payload.new.last_read_seq || 0;
         if (newReadSeq > this.otherReadSeq) playSound('message_read'); // transition réelle uniquement
@@ -156,12 +209,12 @@ class ChatManager {
     }
 
     channel.on('broadcast', { event: 'typing' }, ({ payload }) => {
-      if (myGen !== this.generation) return;
+      if (myGen !== this.generation || this.stopped) return;
       if (payload?.user_id && payload.user_id !== this.currentUserId) showTypingIndicator();
     });
 
     channel.subscribe(async (status) => {
-      if (myGen !== this.generation) return;
+      if (myGen !== this.generation || this.stopped) return;
       if (status === 'SUBSCRIBED') {
         this.setState('SUBSCRIBED');
         await this.syncAndFlush(myGen);
@@ -184,27 +237,42 @@ class ChatManager {
     }, delay);
   }
 
+  // ---------- SYNCHRO INITIALE / RATTRAPAGE ----------
+  // Premier chargement (lastKnownSeq = 0) : les PAGE_SIZE derniers messages.
+  // Reconnexion (lastKnownSeq > 0) : rattrapage de tout ce qui a un seq supérieur, sans trou.
+  // Invariant : READY n'est atteint que si cette requête REST a réussi.
+
   async syncAndFlush(myGen) {
     this.setState('SYNCING');
 
-    const { data, error } = await supabaseClient
+    const initial = this.lastKnownSeq === 0;
+    let query = supabaseClient
       .from('messages')
-      .select('id, conversation_id, sender_id, client_message_id, content, created_at, seq, reported, deleted_for_everyone, reply_to_client_message_id')
-      .eq('conversation_id', this.conversationId)
-      .gt('seq', this.lastKnownSeq)
-      .order('seq', { ascending: true });
+      .select(MESSAGE_COLUMNS)
+      .eq('conversation_id', this.conversationId);
+    query = initial
+      ? query.order('seq', { ascending: false }).limit(PAGE_SIZE)
+      : query.gt('seq', this.lastKnownSeq).order('seq', { ascending: true });
 
-    if (myGen !== this.generation) return;
+    const { data, error } = await query;
+    if (myGen !== this.generation || this.stopped) return;
 
-    // NB : ce fetch est une synchronisation historique — aucun son ne doit se jouer ici,
-    // "received" ne se déclenche que pour les arrivées EN DIRECT (handleRealtimeInsert).
-    if (!error && data) {
-      data.forEach(msg => {
-        this.renderMessage(msg, 'confirmed');
-        if (msg.seq > this.lastKnownSeq) this.lastKnownSeq = msg.seq;
-      });
-    } else if (error) {
+    if (error) {
       console.error('Erreur synchronisation REST:', error);
+      this.handleDisconnect(myGen); // pas de READY, pas d'accusés, pas de flush
+      return;
+    }
+
+    // NB : synchronisation historique — aucun son ici ("received" = arrivées en direct uniquement).
+    const rows = data || [];
+    const chronological = initial ? rows.slice().reverse() : rows;
+    chronological.forEach(msg => {
+      this.renderMessage(msg, 'confirmed');
+      if (msg.seq > this.lastKnownSeq) this.lastKnownSeq = msg.seq;
+    });
+    if (initial) {
+      if (chronological.length > 0) this.oldestLoadedSeq = chronological[0].seq;
+      this.hasMoreOlder = chronological.length === PAGE_SIZE;
     }
 
     if (!this.isGroup) {
@@ -214,6 +282,7 @@ class ChatManager {
         .eq('conversation_id', this.conversationId)
         .neq('user_id', this.currentUserId)
         .maybeSingle();
+      if (myGen !== this.generation || this.stopped) return;
       if (otherMember) {
         this.otherReadSeq = otherMember.last_read_seq || 0;
         this.otherDeliveredSeq = otherMember.last_delivered_seq || 0;
@@ -224,8 +293,84 @@ class ChatManager {
     this.reconnectAttempt = 0;
     this.setState('READY');
     await this.markAsDelivered();
+    if (myGen !== this.generation || this.stopped) return;
     await this.markAsRead();
+    if (myGen !== this.generation || this.stopped) return;
     await this.flushOutbox();
+    if (myGen !== this.generation || this.stopped) return;
+    this._attachScrollListener();
+    this._maybeFillViewport();
+  }
+
+  // ---------- PAGINATION VERS LE HAUT ----------
+
+  _attachScrollListener() {
+    if (this._onScroll) return;
+    const el = document.getElementById('chat-messages');
+    if (!el) return;
+    this._scrollEl = el;
+    this._onScroll = () => {
+      if (el.scrollTop < SCROLL_LOAD_THRESHOLD_PX) this.loadOlderMessages();
+    };
+    el.addEventListener('scroll', this._onScroll, { passive: true });
+  }
+
+  _detachScrollListener() {
+    if (this._onScroll && this._scrollEl) {
+      this._scrollEl.removeEventListener('scroll', this._onScroll);
+    }
+    this._onScroll = null;
+    this._scrollEl = null;
+  }
+
+  // Écran haut : 30 messages peuvent ne pas remplir la zone, donc aucun scroll possible.
+  _maybeFillViewport() {
+    const el = document.getElementById('chat-messages');
+    if (!el || this.stopped || el.clientHeight === 0) return;
+    if (!this.hasMoreOlder || el.scrollHeight > el.clientHeight + 1) return;
+    const before = this.oldestLoadedSeq;
+    this.loadOlderMessages().then(() => {
+      // Ne récurse que si la page a réellement progressé (pas de boucle sur erreur persistante).
+      if (!this.stopped && this.oldestLoadedSeq !== before) this._maybeFillViewport();
+    });
+  }
+
+  async loadOlderMessages() {
+    if (this.loadingOlder || !this.hasMoreOlder || this.oldestLoadedSeq == null) return;
+    if (this.stopped || this.state !== 'READY') return;
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    const myGen = this.generation;
+    this.loadingOlder = true;
+    const previousHeight = container.scrollHeight;
+    const previousTop = container.scrollTop;
+
+    try {
+      const { data, error } = await supabaseClient
+        .from('messages')
+        .select(MESSAGE_COLUMNS)
+        .eq('conversation_id', this.conversationId)
+        .lt('seq', this.oldestLoadedSeq)
+        .order('seq', { ascending: false })
+        .limit(PAGE_SIZE);
+
+      if (myGen !== this.generation || this.stopped) return; // aucun accès DOM
+      if (error) {
+        console.error('Erreur chargement messages plus anciens:', error);
+        return;
+      }
+
+      const rows = data || []; // ordre décroissant : chaque insertion en tête reconstitue l'ordre chronologique
+      rows.forEach(msg => this.renderMessage(msg, 'confirmed', true));
+      if (rows.length > 0) this.oldestLoadedSeq = rows[rows.length - 1].seq;
+      this.hasMoreOlder = rows.length === PAGE_SIZE;
+      this.refreshOwnMessageReceipts();
+
+      container.scrollTop = previousTop + (container.scrollHeight - previousHeight);
+    } finally {
+      this.loadingOlder = false;
+    }
   }
 
   handleRealtimeInsert(row) {
@@ -289,7 +434,8 @@ class ChatManager {
   loadOutbox() {
     try {
       const raw = localStorage.getItem(OUTBOX_KEY);
-      return raw ? JSON.parse(raw) : [];
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       console.error('Outbox illisible, réinitialisation', e);
       return [];
@@ -310,7 +456,17 @@ class ChatManager {
     }
   }
 
+  // Modifie UNE entrée sur l'état courant du stockage (jamais un snapshot périmé).
+  patchOutboxEntry(clientMessageId, patch) {
+    const entries = this.loadOutbox();
+    const target = entries.find(e => e.client_message_id === clientMessageId);
+    if (!target) return;
+    Object.assign(target, patch);
+    this.saveOutbox(entries);
+  }
+
   async sendMessage(content, replyToId = null) {
+    if (this.stopped) return;
     content = content.trim();
     if (!content || content.length > MAX_CONTENT_LENGTH) return;
 
@@ -337,6 +493,79 @@ class ChatManager {
     await this.flushOutbox();
   }
 
+  // ---------- ENVOI D'IMAGE (choix A : upload d'abord, Outbox ensuite) ----------
+  // Aucune durabilité tant que l'upload n'a pas réussi : un rechargement pendant l'upload
+  // perd l'envoi (limite assumée). Une image n'est jamais "queued" avant que son chemin soit connu.
+
+  async sendMedia(file, caption = '', replyToId = null) {
+    if (this.stopped || this.state !== 'READY') {
+      showToast('Connexion en cours, réessaie dans un instant.');
+      return false;
+    }
+    const ext = file && MEDIA_EXT[file.type];
+    if (!ext) { showToast('Format non pris en charge (JPEG, PNG ou WebP).'); return false; }
+    if (file.size > MAX_MEDIA_SIZE) { showToast('Image trop lourde (max 5 Mo).'); return false; }
+    if (this.loadOutbox().length >= MAX_OUTBOX) {
+      showToast("File d'attente pleine, attends l'envoi des messages précédents.");
+      return false;
+    }
+
+    const clientMessageId = crypto.randomUUID();
+    const path = `${this.conversationId}/${clientMessageId}.${ext}`;
+    const entry = {
+      client_message_id: clientMessageId,
+      conversation_id: this.conversationId,
+      sender_id: this.currentUserId,
+      content: (caption || '').trim().slice(0, MAX_CONTENT_LENGTH) || MEDIA_PLACEHOLDER,
+      reply_to_client_message_id: replyToId || null,
+      media_url: path,
+      media_type: file.type,
+      created_at_local: new Date().toISOString(),
+      status: 'queued'
+    };
+
+    const preview = URL.createObjectURL(file);
+    this.blobUrls.push(preview);
+    this.renderMessage({ ...entry, _localPreview: preview }, 'sending');
+
+    const removeRow = () => {
+      const row = document.querySelector(`[data-client-id="${cssEscape(clientMessageId)}"]`);
+      if (row) row.remove();
+    };
+
+    let uploadError = null;
+    try {
+      const res = await withTimeout(
+        supabaseClient.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, upsert: false }),
+        UPLOAD_TIMEOUT_MS
+      );
+      uploadError = res.error;
+    } catch (e) {
+      uploadError = e;
+    }
+
+    if (uploadError) {
+      console.error('Échec upload média:', uploadError);
+      if (!this.stopped) { removeRow(); showToast("Échec de l'envoi de l'image. Réessaie."); playSound('failed'); }
+      return false;
+    }
+
+    // L'upload a réussi : l'intention de l'utilisateur est persistée même si la conversation a changé.
+    // Manager arrêté => aucun accès DOM (la ligne appartient à un chat désormais vidé).
+    const outbox = this.loadOutbox();
+    if (outbox.length >= MAX_OUTBOX) {
+      console.error('Outbox pleine après upload : fichier orphelin dans Storage', path);
+      if (!this.stopped) { removeRow(); showToast("File d'attente pleine, image non envoyée."); playSound('failed'); }
+      return false;
+    }
+    outbox.push(entry);
+    this.saveOutbox(outbox);
+
+    if (this.stopped) return true;
+    await this.flushOutbox();
+    return true;
+  }
+
   // ---------- ACTIONS MESSAGE ----------
 
   async deleteForSelf(clientMessageId, messageId) {
@@ -359,7 +588,9 @@ class ChatManager {
     const row = document.querySelector(`[data-client-id="${cssEscape(clientMessageId)}"]`);
     if (row) {
       const content = row.querySelector('.chat-message-content');
-      if (content) content.textContent = 'Message supprimé';
+      if (content) { content.textContent = 'Message supprimé'; content.hidden = false; }
+      const media = row.querySelector('.chat-message-media');
+      if (media) media.remove();
       row.classList.add('deleted');
     }
   }
@@ -375,34 +606,64 @@ class ChatManager {
     return true;
   }
 
-  async flushOutbox() {
-    if (this.state !== 'READY') return;
-    let outbox = this.loadOutbox();
+  // ---------- FLUSH OUTBOX (non réentrant, sans écrasement) ----------
 
-    for (const entry of outbox) {
-      if (entry.status === 'sent') continue;
-      entry.status = 'sending';
-      this.saveOutbox(outbox);
-      renderMessageStatus(entry.client_message_id, 'sending');
+  async flushOutbox() {
+    if (this.state !== 'READY' || this.stopped) return;
+    if (this.flushing) { this.flushQueued = true; return; }
+    this.flushing = true;
+    try {
+      do {
+        this.flushQueued = false;
+        await this._flushOnce();
+      } while (this.flushQueued && this.state === 'READY' && !this.stopped);
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  async _flushOnce() {
+    const snapshot = this.loadOutbox();
+    const removeIds = new Set();
+
+    for (const entry of snapshot) {
+      if (this.stopped || this.state !== 'READY') break;
+      const id = entry.client_message_id;
+
+      if (entry.status === 'sent') { removeIds.add(id); continue; }
+
+      if (entry.media_url && !isValidMediaPath(entry.media_url, entry.conversation_id)) {
+        console.error('Entrée Outbox média invalide, supprimée:', id);
+        removeIds.add(id);
+        continue;
+      }
+
+      this.patchOutboxEntry(id, { status: 'sending' });
+      renderMessageStatus(id, 'sending');
+
+      const payload = {
+        conversation_id: entry.conversation_id,
+        sender_id: entry.sender_id,
+        client_message_id: id,
+        content: entry.content,
+        reply_to_client_message_id: entry.reply_to_client_message_id || null
+      };
+      if (entry.media_url) {
+        payload.media_url = entry.media_url;
+        payload.media_type = entry.media_type;
+      }
 
       let insertResult;
       try {
         insertResult = await withTimeout(
-          supabaseClient.from('messages').insert({
-            conversation_id: entry.conversation_id,
-            sender_id: entry.sender_id,
-            client_message_id: entry.client_message_id,
-            content: entry.content,
-            reply_to_client_message_id: entry.reply_to_client_message_id || null
-          }),
+          supabaseClient.from('messages').insert(payload),
           SEND_TIMEOUT_MS
         );
       } catch (timeoutErr) {
-        // Watchdog anti-blocage : l'état optimiste ne reste jamais bloqué indéfiniment.
-        // Le message reste en Outbox (pas supprimé) — un prochain flush retentera,
-        // le double-check 23505 protège contre un doublon si l'INSERT avait en fait réussi.
-        entry.status = 'failed';
-        renderMessageStatus(entry.client_message_id, 'failed');
+        // Watchdog : l'état optimiste ne reste jamais bloqué. Le message reste en Outbox ;
+        // un prochain flush retentera, le contrôle 23505 protège contre un doublon.
+        this.patchOutboxEntry(id, { status: 'failed' });
+        renderMessageStatus(id, 'failed');
         playSound('failed');
         continue;
       }
@@ -410,8 +671,8 @@ class ChatManager {
       const { error } = insertResult;
 
       if (!error) {
-        entry.status = 'sent';
-        renderMessageStatus(entry.client_message_id, 'sent');
+        removeIds.add(id);
+        renderMessageStatus(id, 'sent');
         playSound('sent');
         continue;
       }
@@ -420,38 +681,50 @@ class ChatManager {
         const { data: confirmRow } = await supabaseClient
           .from('messages')
           .select('sender_id, conversation_id, client_message_id')
-          .eq('client_message_id', entry.client_message_id)
+          .eq('client_message_id', id)
           .maybeSingle();
 
         const matches = confirmRow
           && confirmRow.sender_id === entry.sender_id
           && confirmRow.conversation_id === entry.conversation_id;
 
-        entry.status = matches ? 'sent' : 'failed';
-        renderMessageStatus(entry.client_message_id, entry.status);
-        // Pas de son ici : ce n'est qu'une réconciliation de retry, pas un nouvel envoi.
+        if (matches) {
+          removeIds.add(id);
+          renderMessageStatus(id, 'sent');
+        } else {
+          this.patchOutboxEntry(id, { status: 'failed' });
+          renderMessageStatus(id, 'failed');
+        }
+        // Pas de son : simple réconciliation de retry.
         continue;
       }
 
       console.error('Rejet sécurité messages:', error);
-      entry.status = 'failed';
-      renderMessageStatus(entry.client_message_id, 'failed');
+      this.patchOutboxEntry(id, { status: 'failed' });
+      renderMessageStatus(id, 'failed');
       playSound('failed');
     }
 
-    outbox = outbox.filter(e => e.status !== 'sent');
-    this.saveOutbox(outbox);
+    // Relecture fraîche : ne retire que les entrées confirmées, conserve celles ajoutées pendant le flush.
+    if (removeIds.size > 0) {
+      this.saveOutbox(this.loadOutbox().filter(e => !removeIds.has(e.client_message_id)));
+    }
   }
 
   // ---------- RENDU / DÉDUPLICATION (I5, XSS) ----------
+  // prepend = true : insertion en tête (pagination), sans scrollIntoView.
 
-  renderMessage(msg, kind) {
+  renderMessage(msg, kind, prepend = false) {
     const id = msg.client_message_id;
     if (!id) return;
     const isMine = msg.sender_id === this.currentUserId;
+    const container = document.getElementById('chat-messages');
+    if (!container) return;
 
     let row = document.querySelector(`[data-client-id="${cssEscape(id)}"]`);
     if (!row) {
+      const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+
       row = document.createElement('div');
       row.className = 'chat-message-row' + (isMine ? ' mine' : '');
       row.dataset.clientId = id;
@@ -487,10 +760,36 @@ class ChatManager {
         bubble.appendChild(quote);
       }
 
+      // Image : jamais affichée sans chemin valide ; URL signée résolue de façon asynchrone.
+      const hasMedia = !msg.deleted_for_everyone && msg.media_url && MEDIA_EXT[msg.media_type]
+        && (msg._localPreview || isValidMediaPath(msg.media_url, this.conversationId));
+      if (hasMedia) {
+        const img = document.createElement('img');
+        img.className = 'chat-message-media';
+        img.alt = 'Photo envoyée';
+        img.addEventListener('load', () => {
+          if (!prepend && (wasNearBottom || isMine)) container.scrollTop = container.scrollHeight;
+        });
+        img.addEventListener('click', (e) => {
+          e.stopPropagation();
+          if (img.src) window.open(img.src, '_blank', 'noopener');
+        });
+        bubble.appendChild(img);
+        if (msg._localPreview) {
+          img.src = msg._localPreview;
+        } else {
+          getSignedMediaUrl(msg.media_url).then(url => {
+            if (url) img.src = url;
+            else { img.remove(); const miss = document.createElement('span'); miss.className = 'chat-message-status'; miss.textContent = 'Image indisponible'; bubble.insertBefore(miss, bubble.firstChild); }
+          });
+        }
+      }
+
       const content = document.createElement('span');
       content.className = 'chat-message-content';
       content.textContent = msg.deleted_for_everyone ? 'Message supprimé' : msg.content;
       if (msg.deleted_for_everyone) bubble.classList.add('deleted');
+      if (hasMedia && msg.content === MEDIA_PLACEHOLDER) content.hidden = true;
       bubble.appendChild(content);
 
       // Menu d'actions — visible au clic sur la bulle, pas de suppression possible sur un message déjà effacé
@@ -537,13 +836,18 @@ class ChatManager {
 
       bubble.appendChild(meta);
       row.appendChild(bubble);
-      document.getElementById('chat-messages').appendChild(row);
-      row.scrollIntoView({ block: 'nearest' });
+
+      if (prepend) {
+        container.insertBefore(row, container.firstChild);
+      } else {
+        container.appendChild(row);
+        row.scrollIntoView({ block: 'nearest' });
+      }
     } else if (msg.seq) {
       row.dataset.seq = msg.seq;
     }
     this.updateStatusNode(row, kind === 'confirmed' ? 'sent' : kind);
-    if (isMine && msg.seq) this.refreshOwnMessageReceipts();
+    if (isMine && msg.seq && !prepend) this.refreshOwnMessageReceipts();
   }
 
   updateStatusNode(row, status) {

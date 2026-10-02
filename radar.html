@@ -64,7 +64,13 @@
         }
 
         function isValidAvatar(url) {
-            return typeof url === 'string' && url.startsWith('https://api.dicebear.com/');
+            try {
+                const u = new URL(url);
+                if (u.protocol !== 'https:') return false;
+                if (u.hostname === 'api.dicebear.com') return true;
+                return u.hostname === 'afwutxnapjrauouazcui.supabase.co'
+                    && u.pathname.startsWith('/storage/v1/object/public/avatars/');
+            } catch (e) { return false; }
         }
 
         function showToast(msg) {

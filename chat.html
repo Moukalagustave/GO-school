@@ -82,6 +82,8 @@
             </div>
 
             <form id="chat-form" class="chat-input-row">
+                <button type="button" class="btn-attach" id="attach-btn" aria-label="Envoyer une image">📎</button>
+                <input type="file" id="media-input" accept="image/jpeg,image/png,image/webp" hidden>
                 <input type="text" id="chat-input" maxlength="2000" placeholder="Écris un message…" autocomplete="off">
                 <button type="submit" class="btn-send" aria-label="Envoyer">
                     <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
@@ -152,10 +154,7 @@
     }
 
     function isValidAvatarUrlLocal(url) {
-        return typeof url === 'string' && (
-            url.startsWith('https://api.dicebear.com/') ||
-            url.includes('/storage/v1/object/public/avatars/')
-        );
+        return isValidAvatarUrl(url); // définie dans chat.js (chargé avant ce script)
     }
 
     (async () => {
@@ -428,6 +427,20 @@
         } else {
             showToast('Erreur, réessaie.');
         }
+    });
+
+    // ---------- ENVOI D'IMAGE ----------
+    document.getElementById('attach-btn').addEventListener('click', () => {
+        document.getElementById('media-input').click();
+    });
+    document.getElementById('media-input').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        e.target.value = '';
+        if (!file || !manager) return;
+        const replyId = currentReplyTarget;
+        currentReplyTarget = null;
+        document.getElementById('reply-preview-bar').classList.remove('open');
+        await manager.sendMedia(file, '', replyId);
     });
 
     let lastTypingSent = 0;
